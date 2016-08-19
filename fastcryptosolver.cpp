@@ -5,35 +5,48 @@
 #include <unordered_set>
 #include <chrono>
 #include <iomanip>
+#include <algorithm>
 
+constexpr const char* wordlistName = "../wordlist/english_huge.txt";
 
-constexpr const char* wordlistName="../wordlist/english_huge.txt";
+template<int NumLetters>
+void transformText(std::string sourceText, const std::string substitutionKey)
+{
+    for (int index = 0; index < NumLetters; ++index)
+    {
+        char& chr = sourceText.at(index);
+        if (chr > 'A' && chr < 'Z' && substitutionKey.size() == NumLetters)
+        {
+            chr = substitutionKey.c_str()[chr - 'A'];
+        }
+    }
+}
 
-void LoadWordListIntoMap(const std::string filename, std::unordered_set<std::string>& outMap)
+void LoadWordListIntoMap(const std::string filename, std::unordered_set<std::string>& outSet)
 {
     std::cout << "Start loading wordlist from file: " << std::endl << filename << std::endl;
     auto tpBegin = std::chrono::system_clock::now();
     std::ifstream wordlistFile(filename);
-    outMap.reserve(2000000);
-    if(wordlistFile.is_open())
+    outSet.reserve(2000000);
+    if (wordlistFile.is_open())
     {
         std::string line;
         // get length of file:
-        wordlistFile.seekg (0, wordlistFile.end);
+        wordlistFile.seekg(0, wordlistFile.end);
         int fileSize = wordlistFile.tellg();
-        wordlistFile.seekg (0, wordlistFile.beg);
+        wordlistFile.seekg(0, wordlistFile.beg);
 
-        while(std::getline(wordlistFile, line))
+        while (std::getline(wordlistFile, line))
         {
-            outMap.insert(std::move(line));
+            outSet.insert(std::move(line));
         }
         auto tpEnd = std::chrono::system_clock::now();
-        auto millisecondsElapsed =  std::chrono::duration_cast<std::chrono::milliseconds>(tpEnd - tpBegin).count();
+        auto millisecondsElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tpEnd - tpBegin).count();
 
         double secondsElapsed = millisecondsElapsed / 1000.0;
 
-        std::cout << "Wordlist loaded in " << std::setprecision(3) << std::fixed << secondsElapsed << " s" <<std::endl;
-        std::cout << "Word count: " << outMap.size() << " words" << std::endl;
+        std::cout << "Wordlist loaded in " << std::setprecision(3) << std::fixed << secondsElapsed << " s" << std::endl;
+        std::cout << "Word count: " << outSet.size() << " words" << std::endl;
         std::cout << "Speed: " << std::setprecision(3) << fileSize / secondsElapsed / 1024 / 1024 << " MB/s" << std::endl;
 
     }
@@ -49,7 +62,7 @@ int main()
     std::string cryptogramText;
     std::cout << "Enter cryptogram:" << std::endl;
     std::cin >> cryptogramText;
-
+    std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
     std::unordered_set<std::string> wordList;
     LoadWordListIntoMap(wordlistName, wordList);
 
