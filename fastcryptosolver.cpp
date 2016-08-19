@@ -1,5 +1,15 @@
+#include <iostream>
+#include <vector>
+#include <string>
 
-int main(int argc, char* argv[])
+constexpr char* wordlist_name="english_big.txt";
+
+using Word=std::string;
+
+
+int main()
 {
+    std::string cryptogram_text;
+    cin >> cryptogram_text;
 }
 
