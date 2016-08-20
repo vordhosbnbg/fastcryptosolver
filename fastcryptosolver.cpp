@@ -91,15 +91,24 @@ std::string MutateKey(const std::string& sourceKey)
     return retVal;
 }
 
-std::vector<std::string> splitLineToWords(const std::string line) 
+std::vector<std::string> splitLineToWords(const std::string& line) 
 {
     std::vector<std::string> retVal;
-    std::stringstream ss(line);
-    std::string word;
-    while (std::getline(ss, word, ' ' )) 
+    //std::stringstream ss(line);
+    size_t strPos = 0;
+    size_t oldPos = 0;
+    while (strPos != std::string::npos)
     {
-        retVal.emplace_back(std::move(word));
+        strPos = line.find_first_of(' ', oldPos);
+        if (strPos != std::string::npos)
+        {
+            retVal.emplace_back(line.substr(oldPos, strPos - oldPos));
+            oldPos = strPos + 1;
+        }
     }
+    //handle last word
+    retVal.emplace_back(line.substr(oldPos, line.size() - oldPos));
+
     return retVal;
 }
 
@@ -116,22 +125,31 @@ double calcTextQuality(const std::string& text, std::unordered_set<std::string>&
             ++good;
         }
     }
-
     retVal = (double)good / (double)vecWords.size();
     return retVal;
 }
 
-void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, std::unordered_set<std::string>& wordList, const double minQuality)
+void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, std::unordered_set<std::string>& wordList)
 {
-    std::string newKey = MutateKey<ALPHABET_LETTERS_NUM>(initialKey);
-    std::string decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKey);
-    auto pair = std::make_pair(newKey, decryptedText);
-    double quality = calcTextQuality(decryptedText, wordList);
-    if (quality > minQuality)
+    bool added = false;
+    std::string newKey = initialKey;
+    std::string decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, initialKey);
+    const double minQuality = calcTextQuality(decryptedText, wordList);
+    while (!added)
     {
-        mapMutex.lock();
-        sMap.insert(std::make_pair(quality, pair));
-        mapMutex.unlock();
+        newKey = MutateKey<ALPHABET_LETTERS_NUM>(newKey);
+        decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKey);
+        double quality = calcTextQuality(decryptedText, wordList);
+        std::cout << decryptedText << std::endl;
+        if (quality > minQuality)
+        {
+            auto pair = std::make_pair(newKey, decryptedText);
+            mapMutex.lock();
+            sMap.insert(std::make_pair(quality, pair));
+            mapMutex.unlock();
+            std::cout << "New better solution: " << decryptedText << std::endl;
+            added = true;
+        }
     }
 }
 
@@ -250,7 +268,7 @@ int main()
                     itKeyToPass = itBestKeys;
                 }
                 const std::string& keyToPass = *itKeyToPass;
-                vecThreads.push_back(std::thread(addOneBetterSolution, solutionMap, std::ref(solutionMapLocker), keyToPass, cryptogramText, wordList, SOLUTION_QUALITY));
+                vecThreads.push_back(std::thread(addOneBetterSolution, solutionMap, std::ref(solutionMapLocker), keyToPass, cryptogramText, wordList));
             }
 
             for (auto& thr : vecThreads) 
