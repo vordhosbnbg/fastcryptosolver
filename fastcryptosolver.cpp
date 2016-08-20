@@ -116,18 +116,23 @@ double calcTextQuality(const std::string& text, std::unordered_set<std::string>&
             ++good;
         }
     }
+
+    retVal = (double)good / (double)vecWords.size();
     return retVal;
 }
 
-void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, std::unordered_set<std::string>& wordList)
+void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, std::unordered_set<std::string>& wordList, const double minQuality)
 {
     std::string newKey = MutateKey<ALPHABET_LETTERS_NUM>(initialKey);
     std::string decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKey);
-    auto pair = std::make_pair(newKey, cryptoText);
-    double quality = calcTextQuality(cryptoText, wordList);
-    mapMutex.lock();
-    sMap.insert(std::make_pair(quality, pair));
-    mapMutex.unlock();
+    auto pair = std::make_pair(newKey, decryptedText);
+    double quality = calcTextQuality(decryptedText, wordList);
+    if (quality > minQuality)
+    {
+        mapMutex.lock();
+        sMap.insert(std::make_pair(quality, pair));
+        mapMutex.unlock();
+    }
 }
 
 void removeRandomMember(std::unordered_set<std::string>& outSet) 
@@ -146,7 +151,23 @@ void removeRandomMember(std::unordered_set<std::string>& outSet)
         cntIter++;
     }
 }
+template<int NumLetters>
+void addRandomKey(std::unordered_set<std::string>& outSet) 
+{
+    std::string newKey;
+    std::uniform_int_distribution<int> randomLetter('A', 'Z');
+    while (newKey.size() < NumLetters)
+    {
+        char chr = static_cast<char>(randomLetter(e1));
+        if (newKey.find(chr) == std::string::npos)
+        {
+            newKey.push_back(chr);
+        }
+    }
+    outSet.insert(std::move(newKey));
+}
 
+template<int NumLetters>
 std::unordered_set<std::string> getBestKeys(const SolutionMap& sMap, int numberOfKeys)
 {
     std::unordered_set<std::string> retVal;
@@ -174,6 +195,11 @@ std::unordered_set<std::string> getBestKeys(const SolutionMap& sMap, int numberO
         removeRandomMember(retVal);
     }
 
+    while (retVal.size() < numberOfKeys)
+    {
+        addRandomKey<NumLetters>(retVal);
+    }
+
     return retVal;
 }
 
@@ -183,7 +209,7 @@ int main()
 {
     std::string cryptogramText;
     std::cout << "Enter cryptogram:" << std::endl;
-    std::cin >> cryptogramText;
+    std::getline(std::cin, cryptogramText);
     std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
     std::unordered_set<std::string> wordList;
     loadWordListIntoSet(wordlistName, wordList);
@@ -197,7 +223,7 @@ int main()
         while (solutionMap.size() < GOOD_SOLUTION_NUM)
         {
             std::vector<std::thread> vecThreads;
-            std::unordered_set<std::string> bestKeys = getBestKeys(solutionMap, maxThreads);
+            std::unordered_set<std::string> bestKeys = getBestKeys<ALPHABET_LETTERS_NUM>(solutionMap, maxThreads);
             std::unordered_set<std::string> usedKeys;
             auto itBestKeys = bestKeys.begin();
             auto itKeyToPass = bestKeys.begin();
@@ -224,9 +250,14 @@ int main()
                     itKeyToPass = itBestKeys;
                 }
                 const std::string& keyToPass = *itKeyToPass;
-                vecThreads.push_back(std::thread(addOneBetterSolution, solutionMap, solutionMapLocker, keyToPass, cryptogramText, wordList));
+                vecThreads.push_back(std::thread(addOneBetterSolution, solutionMap, std::ref(solutionMapLocker), keyToPass, cryptogramText, wordList, SOLUTION_QUALITY));
             }
-           
+
+            for (auto& thr : vecThreads) 
+            {
+                thr.join();
+            }
+            
         }
     }
 }
