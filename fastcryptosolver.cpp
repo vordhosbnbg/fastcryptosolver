@@ -3,26 +3,49 @@
 #include <vector>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 #include <chrono>
 #include <iomanip>
 #include <algorithm>
+#include <thread>
+#include <map>
+#include <future>
+#include <random>
+#include <sstream>
+
+
+using Solution = std::pair<const std::string, const std::string>;
+using SolutionMap = std::multimap<double, Solution>;
 
 constexpr const char* wordlistName = "../wordlist/english_huge.txt";
+constexpr int ALPHABET_LETTERS_NUM = 26;
+constexpr int GOOD_SOLUTION_NUM = 1000;
+constexpr double SOLUTION_QUALITY = 0.7;
+
+std::random_device rd;
+std::default_random_engine e1(rd());
 
 template<int NumLetters>
-void transformText(std::string sourceText, const std::string substitutionKey)
+std::string transformText(const std::string& sourceText, const std::string& substitutionKey)
 {
-    for (int index = 0; index < NumLetters; ++index)
+    std::string retVal;
+    retVal = sourceText;
+    if (substitutionKey.size() == NumLetters)
     {
-        char& chr = sourceText.at(index);
-        if (chr > 'A' && chr < 'Z' && substitutionKey.size() == NumLetters)
+        for (int index = 0; index < sourceText.size(); ++index)
         {
-            chr = substitutionKey.c_str()[chr - 'A'];
+            const char& chr = sourceText.at(index);
+            char& chrOut = retVal.at(index);
+            if (chr > 'A' && chr < 'Z')
+            {
+                chrOut = substitutionKey.c_str()[chr - 'A'];
+            }
         }
     }
+    return retVal;
 }
 
-void LoadWordListIntoMap(const std::string filename, std::unordered_set<std::string>& outSet)
+void loadWordListIntoSet(const std::string& filename, std::unordered_set<std::string>& outSet)
 {
     std::cout << "Start loading wordlist from file: " << std::endl << filename << std::endl;
     auto tpBegin = std::chrono::system_clock::now();
@@ -33,7 +56,7 @@ void LoadWordListIntoMap(const std::string filename, std::unordered_set<std::str
         std::string line;
         // get length of file:
         wordlistFile.seekg(0, wordlistFile.end);
-        int fileSize = wordlistFile.tellg();
+        std::streamoff fileSize = wordlistFile.tellg();
         wordlistFile.seekg(0, wordlistFile.beg);
 
         while (std::getline(wordlistFile, line))
@@ -56,6 +79,105 @@ void LoadWordListIntoMap(const std::string filename, std::unordered_set<std::str
     }
 }
 
+template<int NumLetters>
+std::string MutateKey(const std::string& sourceKey)
+{
+    std::string retVal = sourceKey;
+    std::uniform_int_distribution<unsigned int> dist(0, NumLetters - 1);
+    unsigned int rnd = dist(e1);
+    unsigned int rndNew = dist(e1);
+    char& chr = retVal.at(rnd);
+    chr = 'A' + rndNew;
+    return retVal;
+}
+
+std::vector<std::string> splitLineToWords(const std::string line) 
+{
+    std::vector<std::string> retVal;
+    std::stringstream ss(line);
+    std::string word;
+    while (std::getline(ss, word, ' ' )) 
+    {
+        retVal.emplace_back(std::move(word));
+    }
+    return retVal;
+}
+
+double calcTextQuality(const std::string& text, std::unordered_set<std::string>& wordList)
+{
+    double retVal;
+    auto vecWords = splitLineToWords(text);
+    size_t numWords = vecWords.size();
+    int good = 0;
+    for (auto word : vecWords)
+    {
+        if (wordList.find(word) != wordList.end())
+        {
+            ++good;
+        }
+    }
+    return retVal;
+}
+
+void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, std::unordered_set<std::string>& wordList)
+{
+    std::string newKey = MutateKey<ALPHABET_LETTERS_NUM>(initialKey);
+    std::string decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKey);
+    auto pair = std::make_pair(newKey, cryptoText);
+    double quality = calcTextQuality(cryptoText, wordList);
+    mapMutex.lock();
+    sMap.insert(std::make_pair(quality, pair));
+    mapMutex.unlock();
+}
+
+void removeRandomMember(std::unordered_set<std::string>& outSet) 
+{
+    std::uniform_int_distribution<size_t> dist(0, outSet.size() - 1);
+    size_t rnd = dist(e1);
+
+    size_t cntIter = 0;
+    for (auto it = outSet.begin(); it != outSet.end(); ++it) 
+    {
+        if (cntIter == rnd) 
+        {
+            outSet.erase(it);
+            break;
+        }
+        cntIter++;
+    }
+}
+
+std::unordered_set<std::string> getBestKeys(const SolutionMap& sMap, int numberOfKeys)
+{
+    std::unordered_set<std::string> retVal;
+
+    for (auto it = sMap.rbegin(); it != sMap.rend(); ++it)
+    {
+        retVal.insert(it->second.first);
+        if (retVal.size() >= numberOfKeys) // we gathered numberOfKeys
+        {
+            auto itNext = it;
+            ++itNext;
+            if (itNext != sMap.rend()) // we are not at the last place (first)
+            {
+                if (itNext->first == it->first) // if the next Solution is with the same quality we add it too
+                {
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+
+    while (retVal.size() > numberOfKeys)
+    {
+        removeRandomMember(retVal);
+    }
+
+    return retVal;
+}
+
+
 
 int main()
 {
@@ -64,7 +186,48 @@ int main()
     std::cin >> cryptogramText;
     std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
     std::unordered_set<std::string> wordList;
-    LoadWordListIntoMap(wordlistName, wordList);
+    loadWordListIntoSet(wordlistName, wordList);
+    if (wordList.size() > 0)
+    {
+        unsigned maxThreads = std::thread::hardware_concurrency();
+        SolutionMap solutionMap;
+        std::uniform_int_distribution<unsigned int> dist(0, maxThreads - 1);
 
+
+        while (solutionMap.size() < GOOD_SOLUTION_NUM)
+        {
+            std::vector<std::thread> vecThreads;
+            std::unordered_set<std::string> bestKeys = getBestKeys(solutionMap, maxThreads);
+            std::unordered_set<std::string> usedKeys;
+            auto itBestKeys = bestKeys.begin();
+            auto itKeyToPass = bestKeys.begin();
+            std::mutex solutionMapLocker;
+            for (unsigned int thread = 0; thread < maxThreads; ++thread)
+            {
+                if (itBestKeys == bestKeys.end()) // exhausted the best keys
+                {
+                    unsigned int rnd = dist(e1);
+
+                    itBestKeys = bestKeys.begin();
+                    int cntWalk = 0;
+                    for (itKeyToPass = bestKeys.begin(); itKeyToPass != bestKeys.end(); ++itKeyToPass) 
+                    {
+                        if (cntWalk == rnd)
+                        {
+                            break;
+                        }
+                        cntWalk++;
+                    }
+                }
+                else 
+                {
+                    itKeyToPass = itBestKeys;
+                }
+                const std::string& keyToPass = *itKeyToPass;
+                vecThreads.push_back(std::thread(addOneBetterSolution, solutionMap, solutionMapLocker, keyToPass, cryptogramText, wordList));
+            }
+           
+        }
+    }
 }
 
