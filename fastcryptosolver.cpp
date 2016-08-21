@@ -17,7 +17,7 @@
 using Solution = std::pair<const std::string, const std::string>;
 using SolutionMap = std::multimap<double, Solution>;
 
-constexpr const char* wordlistName = "../wordlist/english_huge.txt";
+constexpr const char* wordlistName = "../wordlist/google-10000-english-usa.txt";
 constexpr int ALPHABET_LETTERS_NUM = 26;
 constexpr int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
@@ -36,7 +36,7 @@ std::string transformText(const std::string& sourceText, const std::string& subs
         {
             const char& chr = sourceText.at(index);
             char& chrOut = retVal.at(index);
-            if (chr > 'A' && chr < 'Z')
+            if (chr >= 'A' && chr <= 'Z')
             {
                 chrOut = substitutionKey.c_str()[chr - 'A'];
             }
@@ -61,6 +61,7 @@ void loadWordListIntoSet(const std::string& filename, std::unordered_set<std::st
 
         while (std::getline(wordlistFile, line))
         {
+            std::transform(line.begin(), line.end(), line.begin(), ::toupper);
             outSet.insert(std::move(line));
         }
         auto tpEnd = std::chrono::system_clock::now();
@@ -86,8 +87,10 @@ std::string MutateKey(const std::string& sourceKey)
     std::uniform_int_distribution<unsigned int> dist(0, NumLetters - 1);
     unsigned int rnd = dist(e1);
     unsigned int rndNew = dist(e1);
-    char& chr = retVal.at(rnd);
-    chr = 'A' + rndNew;
+    char& chrToMutate = retVal.at(rnd);
+    char newVal = 'A' + rndNew;
+    retVal.at(retVal.find(newVal)) = chrToMutate;
+    chrToMutate = newVal;
     return retVal;
 }
 
@@ -123,6 +126,7 @@ double calcTextQuality(const std::string& text, std::unordered_set<std::string>&
         if (wordList.find(word) != wordList.end())
         {
             ++good;
+            //std::cout << "Found word: " << word << std::endl;
         }
     }
     retVal = (double)good / (double)vecWords.size();
@@ -140,14 +144,14 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::st
         newKey = MutateKey<ALPHABET_LETTERS_NUM>(newKey);
         decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKey);
         double quality = calcTextQuality(decryptedText, wordList);
-        std::cout << decryptedText << std::endl;
+        //std::cout << decryptedText << std::endl;
         if (quality > minQuality)
         {
             auto pair = std::make_pair(newKey, decryptedText);
             mapMutex.lock();
             sMap.insert(std::make_pair(quality, pair));
             mapMutex.unlock();
-            std::cout << "New better solution: " << decryptedText << std::endl;
+            std::cout << "New better solution (Q: " << std::setprecision(4) << std::fixed << quality << " ): " << decryptedText << std::endl;
             added = true;
         }
     }
@@ -269,6 +273,7 @@ int main()
                 }
                 const std::string& keyToPass = *itKeyToPass;
                 vecThreads.push_back(std::thread(addOneBetterSolution, solutionMap, std::ref(solutionMapLocker), keyToPass, cryptogramText, wordList));
+                ++itKeyToPass;
             }
 
             for (auto& thr : vecThreads) 
