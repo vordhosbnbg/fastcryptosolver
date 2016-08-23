@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <array>
 #include <vector>
 #include <string>
 #include <unordered_set>
@@ -24,6 +25,8 @@ constexpr unsigned int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
 constexpr unsigned int maxTextLength = 70;
 constexpr int mutateGoodLetterFactor = 20;
+constexpr size_t maxWords = 20;
+constexpr int keyTryLimit = 100000;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
@@ -140,10 +143,12 @@ private:
 //using WordList = std::unordered_set<std::string>;
 using Word = FixedString<maxTextLength>;
 using WordList = std::unordered_set<Word, Word::hasher >;
+using WordArray = std::array<Word, maxWords>;
 using CryptoText = FixedString<maxTextLength>;
 using CryptoKey = FixedString<ALPHABET_LETTERS_NUM>;
 using CryptoKeySet = std::unordered_set<CryptoKey, CryptoKey::hasher>;
-using Solution = std::pair<const CryptoKey, const CryptoText>;
+using CryptoKeyData = std::pair<CryptoKey, unsigned int>;
+using Solution = std::pair<CryptoKeyData, const CryptoText>;
 using SolutionMap = std::multimap<double, Solution>;
 
 
@@ -204,9 +209,10 @@ void loadWordListIntoSet(const std::string& filename, WordList& outSet)
 }
 
 template<int NumLetters>
-CryptoKey MutateKey(const CryptoKey& sourceKey, std::set<char>& goodPos)
+CryptoKeyData MutateKey(const CryptoKeyData& sourceKeyData, std::set<char>& goodPos)
 {
-    CryptoKey retVal = sourceKey;
+    CryptoKeyData retVal = sourceKeyData;
+    CryptoKey& keyToMutate = retVal.first;
     std::uniform_int_distribution<unsigned int> dist(0, NumLetters - 1);
     std::uniform_int_distribution<unsigned int> mutateGoodChanceDist(0, 1000);
     unsigned int rnd;
@@ -217,16 +223,17 @@ CryptoKey MutateKey(const CryptoKey& sourceKey, std::set<char>& goodPos)
         chance = mutateGoodChanceDist(e1);
     } while ((goodPos.find(rnd) != goodPos.end()) && (chance > mutateGoodLetterFactor));
     unsigned int rndNew = dist(e1);
-    char& chrToMutate = retVal.at(rnd);
+    char& chrToMutate = keyToMutate.at(rnd);
     char newVal = 'A' + rndNew;
-    retVal.at(retVal.find_first_of(newVal)) = chrToMutate;
+    keyToMutate.at(keyToMutate.find_first_of(newVal)) = chrToMutate;
     chrToMutate = newVal;
+    retVal.second++;
     return retVal;
 }
 
-std::vector<Word> splitLineToWords(const CryptoText& line)
+size_t splitLineToWords(const CryptoText& line, WordArray& outVec)
 {
-    std::vector<Word> retVal;
+    size_t retVal = 0;
     size_t strPos = 0;
     size_t oldPos = 0;
     while (strPos != CryptoText::npos)
@@ -234,26 +241,28 @@ std::vector<Word> splitLineToWords(const CryptoText& line)
         strPos = line.find_first_of(' ', oldPos);
         if (strPos != CryptoText::npos)
         {
-            retVal.emplace_back(line.substr(oldPos, strPos - oldPos));
+            outVec.at(retVal) = line.substr(oldPos, strPos - oldPos);
+            retVal++;
             oldPos = strPos + 1;
         }
     }
     //handle last word
-    retVal.emplace_back(line.substr(oldPos, line.size() - oldPos));
-
+    outVec.at(retVal) = line.substr(oldPos, line.size() - oldPos);
+    retVal++;
     return retVal;
 }
 
 double calcTextQuality(const CryptoText& text, const WordList& wordList, std::set<char>& goodPos)
 {
     double retVal;
-    auto vecWords = splitLineToWords(text);
-    size_t numWords = vecWords.size();
+    WordArray arrayWords;
+    size_t numWords = splitLineToWords(text, arrayWords);
     size_t allTextLength = 0;
     size_t goodTextLength = 0;
     int good = 0;
-    for (const auto& word : vecWords)
+    for (auto wordIndex = 0; wordIndex < numWords; ++wordIndex)
     {
+        const Word& word = arrayWords.at(wordIndex);
         allTextLength += word.size();
         if (wordList.find(word) != wordList.end())
         {
@@ -270,22 +279,42 @@ double calcTextQuality(const CryptoText& text, const WordList& wordList, std::se
     return retVal;
 }
 
-void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoKey& initialKey, const CryptoText& cryptoText, WordList& wordList)
+void removeElementWithCryptoKey(SolutionMap& sMap, const CryptoKey& cKey) 
+{
+    for (auto it = sMap.begin(); it != sMap.end(); ++it) 
+    {
+        const CryptoKey& elementKey = (*it).second.first.first;
+        if (elementKey == cKey) 
+        {
+            sMap.erase(it);
+            std::cout << "Key try limit exhausted... removing solution (Q: " << it->first << "): " << it->second.second.c_str() << std::endl;
+            break;
+        }
+    }
+}
+
+void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoKeyData& initialKey, const CryptoText& cryptoText, WordList& wordList)
 {
     bool added = false;
-    CryptoKey newKey = initialKey;
-    CryptoText decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, initialKey);
+    CryptoKeyData newKeyData = initialKey;
+    CryptoText decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, initialKey.first);
     std::set<char> goodPositions;
     const double minQuality = calcTextQuality(decryptedText, wordList, goodPositions);
     while (!added)
     {
-        newKey = MutateKey<ALPHABET_LETTERS_NUM>(newKey, goodPositions);
-        decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKey);
+        newKeyData = MutateKey<ALPHABET_LETTERS_NUM>(newKeyData, goodPositions);
+        if (newKeyData.second > keyTryLimit)
+        {
+            mapMutex.lock();
+            removeElementWithCryptoKey(sMap, initialKey.first);
+            mapMutex.unlock();
+        }
+        decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKeyData.first);
         double quality = calcTextQuality(decryptedText, wordList, goodPositions);
         //std::cout << decryptedText << std::endl;
         if (quality > minQuality)
         {
-            auto pair = std::make_pair(newKey, decryptedText);
+            auto pair = std::make_pair(newKeyData, decryptedText);
             mapMutex.lock();
             sMap.insert(std::make_pair(quality, pair));
             mapMutex.unlock();
@@ -334,7 +363,7 @@ CryptoKeySet getBestKeys(const SolutionMap& sMap, int numberOfKeys)
 
     for (auto it = sMap.rbegin(); it != sMap.rend(); ++it)
     {
-        retVal.insert(it->second.first);
+        retVal.insert(it->second.first.first);
         if (retVal.size() >= numberOfKeys) // we gathered numberOfKeys
         {
             auto itNext = it;
@@ -369,17 +398,17 @@ int main(int argc, char *argv[])
 {
     WordList wordList;
     loadWordListIntoSet(wordlistName, wordList);
-    std::string cryptogramText = "AQQH TL AIF LMX XD SOG KPA TSUHF CDL QFTCS MPU HVNSTL";
+    std::string cryptogramText;// = "AQQH TL AIF LMX XD SOG KPA TSUHF CDL QFTCS MPU HVNSTL";
     std::cout << "Enter cryptogram:" << std::endl;
-//    std::getline(std::cin, cryptogramText);
-//    std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
+    std::getline(std::cin, cryptogramText);
+    std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
     CryptoText cryptogramTextFixed = cryptogramText;
     if (wordList.size() > 0)
     {
         unsigned maxThreads = std::thread::hardware_concurrency();
         SolutionMap solutionMap;
         std::uniform_int_distribution<unsigned int> dist(0, maxThreads - 1);
-
+        CryptoKeyData keyDataToPass;
 
         while (solutionMap.size() < GOOD_SOLUTION_NUM)
         {
@@ -409,8 +438,8 @@ int main(int argc, char *argv[])
                 {
                     itKeyToPass = itBestKeys;
                 }
-                const CryptoKey& keyToPass = *itKeyToPass;
-                vecThreads.push_back(std::thread(addOneBetterSolution, std::ref(solutionMap), std::ref(solutionMapLocker), std::ref(keyToPass), std::ref(cryptogramTextFixed), std::ref(wordList)));
+                keyDataToPass.first = *itKeyToPass;
+                vecThreads.push_back(std::thread(addOneBetterSolution, std::ref(solutionMap), std::ref(solutionMapLocker), std::ref(keyDataToPass), std::ref(cryptogramTextFixed), std::ref(wordList)));
                 ++itKeyToPass;
             }
 
