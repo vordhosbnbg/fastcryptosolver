@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <unordered_set>
+#include <set>
 #include <unordered_map>
 #include <chrono>
 #include <iomanip>
@@ -17,7 +18,7 @@
 using Solution = std::pair<const std::string, const std::string>;
 using SolutionMap = std::multimap<double, Solution>;
 
-constexpr const char* wordlistName = "../wordlist/google-10000-english-usa.txt";
+constexpr const char* wordlistName = "../wordlist/test_wordlist.txt";
 constexpr int ALPHABET_LETTERS_NUM = 26;
 constexpr int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
@@ -81,11 +82,15 @@ void loadWordListIntoSet(const std::string& filename, std::unordered_set<std::st
 }
 
 template<int NumLetters>
-std::string MutateKey(const std::string& sourceKey)
+std::string MutateKey(const std::string& sourceKey, std::set<char>& goodPos)
 {
     std::string retVal = sourceKey;
     std::uniform_int_distribution<unsigned int> dist(0, NumLetters - 1);
-    unsigned int rnd = dist(e1);
+    unsigned int rnd;
+    do
+    {
+        rnd = dist(e1);
+    } while ((goodPos.find(rnd) != goodPos.end()) && goodPos.size() != ALPHABET_LETTERS_NUM);
     unsigned int rndNew = dist(e1);
     char& chrToMutate = retVal.at(rnd);
     char newVal = 'A' + rndNew;
@@ -115,7 +120,7 @@ std::vector<std::string> splitLineToWords(const std::string& line)
     return retVal;
 }
 
-double calcTextQuality(const std::string& text, std::unordered_set<std::string>& wordList)
+double calcTextQuality(const std::string& text, const std::unordered_set<std::string>& wordList, std::set<char>& goodPos)
 {
     double retVal;
     auto vecWords = splitLineToWords(text);
@@ -130,7 +135,10 @@ double calcTextQuality(const std::string& text, std::unordered_set<std::string>&
         {
             goodTextLength += word.size();
             ++good;
-            //std::cout << "Found word: " << word << std::endl;
+            for(char chr : word)
+            {
+                goodPos.insert(chr);
+            }
         }
     }
     retVal = (double)goodTextLength / (double)allTextLength;
@@ -142,12 +150,13 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::st
     bool added = false;
     std::string newKey = initialKey;
     std::string decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, initialKey);
-    const double minQuality = calcTextQuality(decryptedText, wordList);
+    std::set<char> goodPositions;
+    const double minQuality = calcTextQuality(decryptedText, wordList, goodPositions);
     while (!added)
     {
-        newKey = MutateKey<ALPHABET_LETTERS_NUM>(newKey);
+        newKey = MutateKey<ALPHABET_LETTERS_NUM>(newKey, goodPositions);
         decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKey);
-        double quality = calcTextQuality(decryptedText, wordList);
+        double quality = calcTextQuality(decryptedText, wordList, goodPositions);
         //std::cout << decryptedText << std::endl;
         if (quality > minQuality)
         {
