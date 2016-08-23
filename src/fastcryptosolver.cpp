@@ -15,14 +15,15 @@
 #include <sstream>
 #include <string.h>
 #include "MurmurHash3.h"
-
+#include <assert.h>
 
 
 constexpr const char* wordlistName = "../wordlist/google-10000-english-usa.txt";
 constexpr unsigned int ALPHABET_LETTERS_NUM = 26;
 constexpr unsigned int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
-constexpr unsigned int maxTextLength = 50;
+constexpr unsigned int maxTextLength = 70;
+constexpr int mutateGoodLetterFactor = 20;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
@@ -116,10 +117,13 @@ public:
         return retVal;
     }
 
-    FixedString<maxLen> substr(size_t begin, size_t end) const
+    FixedString<maxLen> substr(size_t begin, size_t len) const
     {
         FixedString<maxLen> retVal;
-        memcpy(retVal.array, &array[begin], end - begin);
+        assert(begin + len < arrSize);
+        memset(retVal.array, 0, arrSize);
+        memcpy(retVal.array, &array[begin], len);
+        retVal.currentLen = len;
         return retVal;
     }
 
@@ -204,11 +208,14 @@ CryptoKey MutateKey(const CryptoKey& sourceKey, std::set<char>& goodPos)
 {
     CryptoKey retVal = sourceKey;
     std::uniform_int_distribution<unsigned int> dist(0, NumLetters - 1);
+    std::uniform_int_distribution<unsigned int> mutateGoodChanceDist(0, 1000);
     unsigned int rnd;
+    unsigned int chance;
     do
     {
         rnd = dist(e1);
-    } while ((goodPos.find(rnd) != goodPos.end()) && goodPos.size() != ALPHABET_LETTERS_NUM);
+        chance = mutateGoodChanceDist(e1);
+    } while ((goodPos.find(rnd) != goodPos.end()) && (chance > mutateGoodLetterFactor));
     unsigned int rndNew = dist(e1);
     char& chrToMutate = retVal.at(rnd);
     char newVal = 'A' + rndNew;
@@ -369,7 +376,7 @@ int main(int argc, char *argv[])
     CryptoText cryptogramTextFixed = cryptogramText;
     if (wordList.size() > 0)
     {
-        unsigned maxThreads = 1;// std::thread::hardware_concurrency();
+        unsigned maxThreads = std::thread::hardware_concurrency();
         SolutionMap solutionMap;
         std::uniform_int_distribution<unsigned int> dist(0, maxThreads - 1);
 
