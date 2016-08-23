@@ -1,7 +1,29 @@
 cmake_minimum_required (VERSION 3.1)
 
 project (fastcryptosolver)
-add_executable (fastcryptosolver fastcryptosolver.cpp)
+
+file(GLOB_RECURSE Project_SOURCES "src/*.cpp")
+file(GLOB_RECURSE Project_HEADERS "src/*.h")
+file(GLOB_RECURSE External_SOURCES "src/*.cpp")
+file(GLOB_RECURSE External_HEADERS "src/*.h")
+
+set (Project_INCLUDE_DIRS "")
+
+foreach (_headerFile ${Project_HEADERS})
+    get_filename_component(_dir ${_headerFile} PATH)
+    list (APPEND Project_INCLUDE_DIRS ${_dir})
+endforeach()
+
+foreach (_headerFile ${External_HEADERS})
+    get_filename_component(_dir ${_headerFile} PATH)
+    list (APPEND Project_INCLUDE_DIRS ${_dir})
+endforeach()
+
+list(REMOVE_DUPLICATES Project_INCLUDE_DIRS)
+
+include_directories(${Project_INCLUDE_DIRS})
+add_executable (fastcryptosolver ${Project_SOURCES} ${External_SOURCES})
+
 set_property(TARGET fastcryptosolver PROPERTY CXX_STANDARD 11)
 find_package (Threads)
 target_link_libraries (fastcryptosolver ${CMAKE_THREAD_LIBS_INIT})
