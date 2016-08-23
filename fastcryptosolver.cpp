@@ -13,18 +13,84 @@
 #include <future>
 #include <random>
 #include <sstream>
+#include <string.h>
 
 
 using Solution = std::pair<const std::string, const std::string>;
 using SolutionMap = std::multimap<double, Solution>;
 
 constexpr const char* wordlistName = "../wordlist/test_wordlist.txt";
-constexpr int ALPHABET_LETTERS_NUM = 26;
-constexpr int GOOD_SOLUTION_NUM = 1000;
+constexpr unsigned int ALPHABET_LETTERS_NUM = 26;
+constexpr unsigned int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
+constexpr unsigned int maxTextLength = 50;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
+
+template<int maxLen>
+class FixedString
+{
+    static constexpr int arrSize = maxLen + 1;
+public:
+    FixedString() : currentLen(0)
+    {
+        memset(array, 0, arrSize);
+    }
+
+    FixedString(std::string original) : currentLen(original.size())
+    {
+        memset(array, 0, arrSize);
+        memcpy(array, original.c_str(), original.size());
+    }
+
+    FixedString(const char * cStr)
+    {
+        memset(array, 0, arrSize);
+        if(cStr)
+        {
+            currentLen = strnlen(cStr, maxLen);
+            memcpy(array, cStr, currentLen);
+        }
+        else
+        {
+            currentLen = 0;
+        }
+    }
+    ~FixedString();
+
+    const char * c_str()
+    {
+        return array;
+    }
+
+    const char& at(size_t offset) const
+    {
+        return array[offset];
+    }
+
+    char& at(size_t offset)
+    {
+        return array[offset];
+    }
+
+    size_t size()
+    {
+        return currentLen;
+    }
+
+private:
+    size_t currentLen;
+    char array[arrSize];
+};
+
+
+using Word = std::string;
+using WordList = std::unordered_set<std::string>;
+//using Word = FixedString<maxTextLength>;
+//using WordList = std::unordered_set<Word, std::hash(FixedString<maxTextLength>::c_str(), FixedString<maxTextLength>::size())>;
+
+
 
 template<int NumLetters>
 std::string transformText(const std::string& sourceText, const std::string& substitutionKey)
@@ -46,7 +112,7 @@ std::string transformText(const std::string& sourceText, const std::string& subs
     return retVal;
 }
 
-void loadWordListIntoSet(const std::string& filename, std::unordered_set<std::string>& outSet)
+void loadWordListIntoSet(const std::string& filename, WordList& outSet)
 {
     std::cout << "Start loading wordlist from file: " << std::endl << filename << std::endl;
     auto tpBegin = std::chrono::system_clock::now();
@@ -120,7 +186,7 @@ std::vector<std::string> splitLineToWords(const std::string& line)
     return retVal;
 }
 
-double calcTextQuality(const std::string& text, const std::unordered_set<std::string>& wordList, std::set<char>& goodPos)
+double calcTextQuality(const std::string& text, const WordList& wordList, std::set<char>& goodPos)
 {
     double retVal;
     auto vecWords = splitLineToWords(text);
@@ -145,7 +211,7 @@ double calcTextQuality(const std::string& text, const std::unordered_set<std::st
     return retVal;
 }
 
-void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, std::unordered_set<std::string>& wordList)
+void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, WordList& wordList)
 {
     bool added = false;
     std::string newKey = initialKey;
@@ -246,7 +312,7 @@ int main(int argc, char *argv[])
     std::cout << "Enter cryptogram:" << std::endl;
     std::getline(std::cin, cryptogramText);
     std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
-    std::unordered_set<std::string> wordList;
+    WordList wordList;
     loadWordListIntoSet(wordlistName, wordList);
     if (wordList.size() > 0)
     {
