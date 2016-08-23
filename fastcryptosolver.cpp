@@ -120,16 +120,20 @@ double calcTextQuality(const std::string& text, std::unordered_set<std::string>&
     double retVal;
     auto vecWords = splitLineToWords(text);
     size_t numWords = vecWords.size();
+    size_t allTextLength = 0;
+    size_t goodTextLength = 0;
     int good = 0;
-    for (auto word : vecWords)
+    for (const auto& word : vecWords)
     {
+        allTextLength += word.size();
         if (wordList.find(word) != wordList.end())
         {
+            goodTextLength += word.size();
             ++good;
             //std::cout << "Found word: " << word << std::endl;
         }
     }
-    retVal = (double)good / (double)vecWords.size();
+    retVal = (double)goodTextLength / (double)allTextLength;
     return retVal;
 }
 
@@ -227,7 +231,7 @@ std::unordered_set<std::string> getBestKeys(const SolutionMap& sMap, int numberO
 
 
 
-int main()
+int main(int argc, char *argv[])
 {
     std::string cryptogramText;
     std::cout << "Enter cryptogram:" << std::endl;
@@ -272,7 +276,7 @@ int main()
                     itKeyToPass = itBestKeys;
                 }
                 const std::string& keyToPass = *itKeyToPass;
-                vecThreads.push_back(std::thread(addOneBetterSolution, solutionMap, std::ref(solutionMapLocker), keyToPass, cryptogramText, wordList));
+                vecThreads.push_back(std::thread(addOneBetterSolution, std::ref(solutionMap), std::ref(solutionMapLocker), std::ref(keyToPass), std::ref(cryptogramText), std::ref(wordList)));
                 ++itKeyToPass;
             }
 
