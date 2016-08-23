@@ -4,8 +4,8 @@ project (fastcryptosolver)
 
 file(GLOB_RECURSE Project_SOURCES "src/*.cpp")
 file(GLOB_RECURSE Project_HEADERS "src/*.h")
-file(GLOB_RECURSE External_SOURCES "src/*.cpp")
-file(GLOB_RECURSE External_HEADERS "src/*.h")
+file(GLOB_RECURSE External_SOURCES "extsrc/*.cpp")
+file(GLOB_RECURSE External_HEADERS "extsrc/*.h")
 
 set (Project_INCLUDE_DIRS "")
 

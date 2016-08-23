@@ -14,12 +14,11 @@
 #include <random>
 #include <sstream>
 #include <string.h>
+#include "MurmurHash3.h"
 
 
-using Solution = std::pair<const std::string, const std::string>;
-using SolutionMap = std::multimap<double, Solution>;
 
-constexpr const char* wordlistName = "../wordlist/test_wordlist.txt";
+constexpr const char* wordlistName = "../wordlist/google-10000-english-usa.txt";
 constexpr unsigned int ALPHABET_LETTERS_NUM = 26;
 constexpr unsigned int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
@@ -38,7 +37,7 @@ public:
         memset(array, 0, arrSize);
     }
 
-    FixedString(std::string original) : currentLen(original.size())
+    FixedString(const std::string& original) : currentLen(original.size())
     {
         memset(array, 0, arrSize);
         memcpy(array, original.c_str(), original.size());
@@ -57,9 +56,9 @@ public:
             currentLen = 0;
         }
     }
-    ~FixedString();
+    ~FixedString(){}
 
-    const char * c_str()
+    const char * c_str() const
     {
         return array;
     }
@@ -74,10 +73,57 @@ public:
         return array[offset];
     }
 
-    size_t size()
+    size_t size() const
     {
         return currentLen;
     }
+
+    struct hasher
+    {
+        size_t operator()( const FixedString<maxLen>& objToHash ) const
+        {
+            size_t retVal;
+            MurmurHash3_x86_32(&objToHash, sizeof(FixedString<maxLen>), 0xDEADBEEF, &retVal);
+            return retVal;
+        }
+    };
+
+    bool operator==(const FixedString<maxLen>& other) const
+    {
+        return (memcmp(array, other.array, currentLen) == 0);
+    }
+
+    void operator=(const FixedString<maxLen> &other )
+    {
+        memcpy(array, other.array, arrSize);
+        currentLen = other.currentLen;
+    }
+
+    size_t find_first_of(const char val, size_t offset = 0) const
+    {
+        size_t retVal = npos;
+        if(offset <= currentLen)
+        {
+            for(size_t index = offset; index < currentLen; ++index)
+            {
+                if(val == array[index])
+                {
+                    retVal = index;
+                    break;
+                }
+            }
+        }
+        return retVal;
+    }
+
+    FixedString<maxLen> substr(size_t begin, size_t end) const
+    {
+        FixedString<maxLen> retVal;
+        memcpy(retVal.array, &array[begin], end - begin);
+        return retVal;
+    }
+
+    static const size_t npos = static_cast<size_t>(-1);
 
 private:
     size_t currentLen;
@@ -85,17 +131,23 @@ private:
 };
 
 
-using Word = std::string;
-using WordList = std::unordered_set<std::string>;
-//using Word = FixedString<maxTextLength>;
-//using WordList = std::unordered_set<Word, std::hash(FixedString<maxTextLength>::c_str(), FixedString<maxTextLength>::size())>;
+
+//using Word = std::string;
+//using WordList = std::unordered_set<std::string>;
+using Word = FixedString<maxTextLength>;
+using WordList = std::unordered_set<Word, Word::hasher >;
+using CryptoText = FixedString<maxTextLength>;
+using CryptoKey = FixedString<ALPHABET_LETTERS_NUM>;
+using CryptoKeySet = std::unordered_set<CryptoKey, CryptoKey::hasher>;
+using Solution = std::pair<const CryptoKey, const CryptoText>;
+using SolutionMap = std::multimap<double, Solution>;
 
 
 
 template<int NumLetters>
-std::string transformText(const std::string& sourceText, const std::string& substitutionKey)
+CryptoText transformText(const CryptoText& sourceText, const CryptoKey& substitutionKey)
 {
-    std::string retVal;
+    CryptoText retVal;
     retVal = sourceText;
     if (substitutionKey.size() == NumLetters)
     {
@@ -129,7 +181,7 @@ void loadWordListIntoSet(const std::string& filename, WordList& outSet)
         while (std::getline(wordlistFile, line))
         {
             std::transform(line.begin(), line.end(), line.begin(), ::toupper);
-            outSet.insert(std::move(line));
+            outSet.insert(line);
         }
         auto tpEnd = std::chrono::system_clock::now();
         auto millisecondsElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tpEnd - tpBegin).count();
@@ -148,9 +200,9 @@ void loadWordListIntoSet(const std::string& filename, WordList& outSet)
 }
 
 template<int NumLetters>
-std::string MutateKey(const std::string& sourceKey, std::set<char>& goodPos)
+CryptoKey MutateKey(const CryptoKey& sourceKey, std::set<char>& goodPos)
 {
-    std::string retVal = sourceKey;
+    CryptoKey retVal = sourceKey;
     std::uniform_int_distribution<unsigned int> dist(0, NumLetters - 1);
     unsigned int rnd;
     do
@@ -160,21 +212,20 @@ std::string MutateKey(const std::string& sourceKey, std::set<char>& goodPos)
     unsigned int rndNew = dist(e1);
     char& chrToMutate = retVal.at(rnd);
     char newVal = 'A' + rndNew;
-    retVal.at(retVal.find(newVal)) = chrToMutate;
+    retVal.at(retVal.find_first_of(newVal)) = chrToMutate;
     chrToMutate = newVal;
     return retVal;
 }
 
-std::vector<std::string> splitLineToWords(const std::string& line) 
+std::vector<Word> splitLineToWords(const CryptoText& line)
 {
-    std::vector<std::string> retVal;
-    //std::stringstream ss(line);
+    std::vector<Word> retVal;
     size_t strPos = 0;
     size_t oldPos = 0;
-    while (strPos != std::string::npos)
+    while (strPos != CryptoText::npos)
     {
         strPos = line.find_first_of(' ', oldPos);
-        if (strPos != std::string::npos)
+        if (strPos != CryptoText::npos)
         {
             retVal.emplace_back(line.substr(oldPos, strPos - oldPos));
             oldPos = strPos + 1;
@@ -186,7 +237,7 @@ std::vector<std::string> splitLineToWords(const std::string& line)
     return retVal;
 }
 
-double calcTextQuality(const std::string& text, const WordList& wordList, std::set<char>& goodPos)
+double calcTextQuality(const CryptoText& text, const WordList& wordList, std::set<char>& goodPos)
 {
     double retVal;
     auto vecWords = splitLineToWords(text);
@@ -201,8 +252,9 @@ double calcTextQuality(const std::string& text, const WordList& wordList, std::s
         {
             goodTextLength += word.size();
             ++good;
-            for(char chr : word)
+            for(auto index = 0; index < word.size(); ++index)
             {
+                char chr = word.at(index);
                 goodPos.insert(chr);
             }
         }
@@ -211,11 +263,11 @@ double calcTextQuality(const std::string& text, const WordList& wordList, std::s
     return retVal;
 }
 
-void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::string& initialKey, const std::string& cryptoText, WordList& wordList)
+void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoKey& initialKey, const CryptoText& cryptoText, WordList& wordList)
 {
     bool added = false;
-    std::string newKey = initialKey;
-    std::string decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, initialKey);
+    CryptoKey newKey = initialKey;
+    CryptoText decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, initialKey);
     std::set<char> goodPositions;
     const double minQuality = calcTextQuality(decryptedText, wordList, goodPositions);
     while (!added)
@@ -230,13 +282,13 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const std::st
             mapMutex.lock();
             sMap.insert(std::make_pair(quality, pair));
             mapMutex.unlock();
-            std::cout << "New better solution (Q: " << std::setprecision(4) << std::fixed << quality << " ): " << decryptedText << std::endl;
+            std::cout << "New better solution (Q: " << std::setprecision(4) << std::fixed << quality << " ): " << decryptedText.c_str() << std::endl;
             added = true;
         }
     }
 }
 
-void removeRandomMember(std::unordered_set<std::string>& outSet) 
+void removeRandomMember(CryptoKeySet& outSet)
 {
     std::uniform_int_distribution<size_t> dist(0, outSet.size() - 1);
     size_t rnd = dist(e1);
@@ -253,7 +305,7 @@ void removeRandomMember(std::unordered_set<std::string>& outSet)
     }
 }
 template<int NumLetters>
-void addRandomKey(std::unordered_set<std::string>& outSet) 
+void addRandomKey(CryptoKeySet& outSet)
 {
     std::string newKey;
     std::uniform_int_distribution<int> randomLetter('A', 'Z');
@@ -269,9 +321,9 @@ void addRandomKey(std::unordered_set<std::string>& outSet)
 }
 
 template<int NumLetters>
-std::unordered_set<std::string> getBestKeys(const SolutionMap& sMap, int numberOfKeys)
+CryptoKeySet getBestKeys(const SolutionMap& sMap, int numberOfKeys)
 {
-    std::unordered_set<std::string> retVal;
+    CryptoKeySet retVal;
 
     for (auto it = sMap.rbegin(); it != sMap.rend(); ++it)
     {
@@ -308,12 +360,13 @@ std::unordered_set<std::string> getBestKeys(const SolutionMap& sMap, int numberO
 
 int main(int argc, char *argv[])
 {
+    WordList wordList;
+    loadWordListIntoSet(wordlistName, wordList);
     std::string cryptogramText;
     std::cout << "Enter cryptogram:" << std::endl;
     std::getline(std::cin, cryptogramText);
     std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
-    WordList wordList;
-    loadWordListIntoSet(wordlistName, wordList);
+    CryptoText cryptogramTextFixed = cryptogramText;
     if (wordList.size() > 0)
     {
         unsigned maxThreads = std::thread::hardware_concurrency();
@@ -324,8 +377,7 @@ int main(int argc, char *argv[])
         while (solutionMap.size() < GOOD_SOLUTION_NUM)
         {
             std::vector<std::thread> vecThreads;
-            std::unordered_set<std::string> bestKeys = getBestKeys<ALPHABET_LETTERS_NUM>(solutionMap, maxThreads);
-            std::unordered_set<std::string> usedKeys;
+            CryptoKeySet bestKeys = getBestKeys<ALPHABET_LETTERS_NUM>(solutionMap, maxThreads);
             auto itBestKeys = bestKeys.begin();
             auto itKeyToPass = bestKeys.begin();
             std::mutex solutionMapLocker;
@@ -350,8 +402,8 @@ int main(int argc, char *argv[])
                 {
                     itKeyToPass = itBestKeys;
                 }
-                const std::string& keyToPass = *itKeyToPass;
-                vecThreads.push_back(std::thread(addOneBetterSolution, std::ref(solutionMap), std::ref(solutionMapLocker), std::ref(keyToPass), std::ref(cryptogramText), std::ref(wordList)));
+                const CryptoKey& keyToPass = *itKeyToPass;
+                vecThreads.push_back(std::thread(addOneBetterSolution, std::ref(solutionMap), std::ref(solutionMapLocker), std::ref(keyToPass), std::ref(cryptogramTextFixed), std::ref(wordList)));
                 ++itKeyToPass;
             }
 
