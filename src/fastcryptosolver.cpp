@@ -362,14 +362,14 @@ int main(int argc, char *argv[])
 {
     WordList wordList;
     loadWordListIntoSet(wordlistName, wordList);
-    std::string cryptogramText;
+    std::string cryptogramText = "AQQH TL AIF LMX XD SOG KPA TSUHF CDL QFTCS MPU HVNSTL";
     std::cout << "Enter cryptogram:" << std::endl;
-    std::getline(std::cin, cryptogramText);
-    std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
+//    std::getline(std::cin, cryptogramText);
+//    std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
     CryptoText cryptogramTextFixed = cryptogramText;
     if (wordList.size() > 0)
     {
-        unsigned maxThreads = std::thread::hardware_concurrency();
+        unsigned maxThreads = 1;// std::thread::hardware_concurrency();
         SolutionMap solutionMap;
         std::uniform_int_distribution<unsigned int> dist(0, maxThreads - 1);
 
