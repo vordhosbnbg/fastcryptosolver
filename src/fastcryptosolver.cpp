@@ -287,7 +287,7 @@ void removeElementWithCryptoKey(SolutionMap& sMap, const CryptoKey& cKey)
         if (elementKey == cKey) 
         {
             sMap.erase(it);
-            std::cout << "Key try limit exhausted... removing solution (Q: " << it->first << "): " << it->second.second.c_str() << std::endl;
+            std::cout << "Removing solution   (Q: " << it->first << "): " << it->second.second.c_str() << std::endl;
             break;
         }
     }
@@ -318,7 +318,7 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoK
             mapMutex.lock();
             sMap.insert(std::make_pair(quality, pair));
             mapMutex.unlock();
-            std::cout << "New better solution (Q: " << std::setprecision(4) << std::fixed << quality << " ): " << decryptedText.c_str() << std::endl;
+            std::cout << "New better solution (Q: " << std::setprecision(4) << std::fixed << quality << "): " << decryptedText.c_str() << std::endl;
             added = true;
         }
     }
