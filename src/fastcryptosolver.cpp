@@ -24,9 +24,9 @@ constexpr unsigned int ALPHABET_LETTERS_NUM = 26;
 constexpr unsigned int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
 constexpr unsigned int maxTextLength = 70;
-constexpr int mutateGoodLetterFactor = 20;
+constexpr int mutateGoodLetterFactor = 0;
 constexpr size_t maxWords = 20;
-constexpr int keyTryLimit = 100000;
+constexpr unsigned int keyTryLimit = 50000000u;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
@@ -118,6 +118,12 @@ public:
             }
         }
         return retVal;
+    }
+
+    void push_back(char chr)
+    {
+        array[currentLen] = chr;
+        currentLen++;
     }
 
     FixedString<maxLen> substr(size_t begin, size_t len) const
@@ -227,7 +233,6 @@ CryptoKeyData MutateKey(const CryptoKeyData& sourceKeyData, std::set<char>& good
     char newVal = 'A' + rndNew;
     keyToMutate.at(keyToMutate.find_first_of(newVal)) = chrToMutate;
     chrToMutate = newVal;
-    retVal.second++;
     return retVal;
 }
 
@@ -279,15 +284,17 @@ double calcTextQuality(const CryptoText& text, const WordList& wordList, std::se
     return retVal;
 }
 
-void removeElementWithCryptoKey(SolutionMap& sMap, const CryptoKey& cKey) 
+void removeElementWithCryptoKey(SolutionMap& sMap, const CryptoKeyData& cKey, int iterations) 
 {
     for (auto it = sMap.begin(); it != sMap.end(); ++it) 
     {
         const CryptoKey& elementKey = (*it).second.first.first;
-        if (elementKey == cKey) 
+        if (elementKey == cKey.first) 
         {
+            std::cout << "Removing solution   (Q: " << it->first 
+                << " K:" << std::setfill(' ') << std::setw(8) << iterations <<
+                "): " << it->second.second.c_str() << std::endl;
             sMap.erase(it);
-            std::cout << "Removing solution   (Q: " << it->first << "): " << it->second.second.c_str() << std::endl;
             break;
         }
     }
@@ -303,11 +310,13 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoK
     while (!added)
     {
         newKeyData = MutateKey<ALPHABET_LETTERS_NUM>(newKeyData, goodPositions);
-        if (newKeyData.second > keyTryLimit)
+        newKeyData.second++;
+        if (newKeyData.second >= keyTryLimit)
         {
             mapMutex.lock();
-            removeElementWithCryptoKey(sMap, initialKey.first);
+            removeElementWithCryptoKey(sMap, initialKey, newKeyData.second);
             mapMutex.unlock();
+            break;
         }
         decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKeyData.first);
         double quality = calcTextQuality(decryptedText, wordList, goodPositions);
@@ -318,7 +327,9 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoK
             mapMutex.lock();
             sMap.insert(std::make_pair(quality, pair));
             mapMutex.unlock();
-            std::cout << "New better solution (Q: " << std::setprecision(4) << std::fixed << quality << "): " << decryptedText.c_str() << std::endl;
+            std::cout << "New better solution (Q: " << std::setprecision(4) << std::fixed << quality 
+                << " K:" << std::setfill(' ') << std::setw(8) << newKeyData.second
+                << "): " << decryptedText.c_str() << std::endl;
             added = true;
         }
     }
@@ -343,12 +354,12 @@ void removeRandomMember(CryptoKeySet& outSet)
 template<int NumLetters>
 void addRandomKey(CryptoKeySet& outSet)
 {
-    std::string newKey;
+    CryptoKey newKey;
     std::uniform_int_distribution<int> randomLetter('A', 'Z');
     while (newKey.size() < NumLetters)
     {
         char chr = static_cast<char>(randomLetter(e1));
-        if (newKey.find(chr) == std::string::npos)
+        if (newKey.find_first_of(chr) == CryptoKey::npos)
         {
             newKey.push_back(chr);
         }
@@ -439,6 +450,7 @@ int main(int argc, char *argv[])
                     itKeyToPass = itBestKeys;
                 }
                 keyDataToPass.first = *itKeyToPass;
+                keyDataToPass.second = 0;
                 vecThreads.push_back(std::thread(addOneBetterSolution, std::ref(solutionMap), std::ref(solutionMapLocker), std::ref(keyDataToPass), std::ref(cryptogramTextFixed), std::ref(wordList)));
                 ++itKeyToPass;
             }
