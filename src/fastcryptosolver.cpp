@@ -24,9 +24,9 @@ constexpr unsigned int ALPHABET_LETTERS_NUM = 26;
 constexpr unsigned int GOOD_SOLUTION_NUM = 1000;
 constexpr double SOLUTION_QUALITY = 0.7;
 constexpr unsigned int maxTextLength = 70;
-constexpr int mutateGoodLetterFactor = 0;
+constexpr int mutateGoodLetterFactor = 20;
 constexpr size_t maxWords = 20;
-constexpr unsigned int keyTryLimit = 50000000u;
+constexpr unsigned int keyTryLimit = 80000000u;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
@@ -156,6 +156,7 @@ using CryptoKeySet = std::unordered_set<CryptoKey, CryptoKey::hasher>;
 using CryptoKeyData = std::pair<CryptoKey, unsigned int>;
 using Solution = std::pair<CryptoKeyData, const CryptoText>;
 using SolutionMap = std::multimap<double, Solution>;
+using LetterFrequencyMap = std::map<char, unsigned int>;
 
 
 
@@ -178,8 +179,20 @@ CryptoText transformText(const CryptoText& sourceText, const CryptoKey& substitu
     }
     return retVal;
 }
+void analyseWord(Word& word, LetterFrequencyMap& freqMap)
+{
+    for (auto index = 0; index < word.size(); ++index)
+    {
+        const char chr = word.at(index);
+        if (freqMap.find(chr) == freqMap.end())
+        {
+            freqMap[chr] = 0;
+        }
+        freqMap[chr]++;
+    }
+}
 
-void loadWordListIntoSet(const std::string& filename, WordList& outSet)
+void loadWordListIntoSet(const std::string& filename, WordList& outSet, LetterFrequencyMap& freqMap)
 {
     std::cout << "Start loading wordlist from file: " << std::endl << filename << std::endl;
     auto tpBegin = std::chrono::system_clock::now();
@@ -192,11 +205,13 @@ void loadWordListIntoSet(const std::string& filename, WordList& outSet)
         wordlistFile.seekg(0, wordlistFile.end);
         std::streamoff fileSize = wordlistFile.tellg();
         wordlistFile.seekg(0, wordlistFile.beg);
-
+        Word word;
         while (std::getline(wordlistFile, line))
         {
             std::transform(line.begin(), line.end(), line.begin(), ::toupper);
-            outSet.insert(line);
+            word = line;
+            analyseWord(word, freqMap);
+            outSet.insert(word);
         }
         auto tpEnd = std::chrono::system_clock::now();
         auto millisecondsElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tpEnd - tpBegin).count();
@@ -215,22 +230,40 @@ void loadWordListIntoSet(const std::string& filename, WordList& outSet)
 }
 
 template<int NumLetters>
-CryptoKeyData MutateKey(const CryptoKeyData& sourceKeyData, std::set<char>& goodPos)
+CryptoKeyData MutateKey(const CryptoKeyData& sourceKeyData, std::set<char>& goodPos, LetterFrequencyMap& freqMap)
 {
     CryptoKeyData retVal = sourceKeyData;
     CryptoKey& keyToMutate = retVal.first;
-    std::uniform_int_distribution<unsigned int> dist(0, NumLetters - 1);
     std::uniform_int_distribution<unsigned int> mutateGoodChanceDist(0, 1000);
+    std::uniform_int_distribution<unsigned int> letterDist(0, ALPHABET_LETTERS_NUM - 1);
     unsigned int rnd;
     unsigned int chance;
+    unsigned int allLettersNum = 0;
+    for (auto it = freqMap.begin(); it != freqMap.end(); ++it) 
+    {
+        allLettersNum += it->second;
+    }
+    std::uniform_int_distribution<unsigned int> freqDist(0, allLettersNum - 1);
+    unsigned int rndNew = freqDist(e1);
     do
     {
-        rnd = dist(e1);
+        rnd = letterDist(e1);
         chance = mutateGoodChanceDist(e1);
     } while ((goodPos.find(rnd) != goodPos.end()) && (chance > mutateGoodLetterFactor));
-    unsigned int rndNew = dist(e1);
     char& chrToMutate = keyToMutate.at(rnd);
-    char newVal = 'A' + rndNew;
+    char newVal=0;
+    unsigned int freqWalker = 0;
+
+    for (auto it = freqMap.begin(); it != freqMap.end(); ++it) 
+    {
+        freqWalker += it->second;
+        if (freqWalker >= allLettersNum - rndNew) 
+        {
+            newVal = it->first;
+            break;
+        }
+    }
+
     keyToMutate.at(keyToMutate.find_first_of(newVal)) = chrToMutate;
     chrToMutate = newVal;
     return retVal;
@@ -300,7 +333,7 @@ void removeElementWithCryptoKey(SolutionMap& sMap, const CryptoKeyData& cKey, in
     }
 }
 
-void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoKeyData& initialKey, const CryptoText& cryptoText, WordList& wordList)
+void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoKeyData& initialKey, const CryptoText& cryptoText, WordList& wordList, LetterFrequencyMap& freqMap)
 {
     bool added = false;
     CryptoKeyData newKeyData = initialKey;
@@ -309,7 +342,7 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoK
     const double minQuality = calcTextQuality(decryptedText, wordList, goodPositions);
     while (!added)
     {
-        newKeyData = MutateKey<ALPHABET_LETTERS_NUM>(newKeyData, goodPositions);
+        newKeyData = MutateKey<ALPHABET_LETTERS_NUM>(newKeyData, goodPositions, freqMap);
         newKeyData.second++;
         if (newKeyData.second >= keyTryLimit)
         {
@@ -408,7 +441,8 @@ CryptoKeySet getBestKeys(const SolutionMap& sMap, int numberOfKeys)
 int main(int argc, char *argv[])
 {
     WordList wordList;
-    loadWordListIntoSet(wordlistName, wordList);
+    LetterFrequencyMap freqMap;
+    loadWordListIntoSet(wordlistName, wordList, freqMap);
     std::string cryptogramText;// = "AQQH TL AIF LMX XD SOG KPA TSUHF CDL QFTCS MPU HVNSTL";
     std::cout << "Enter cryptogram:" << std::endl;
     std::getline(std::cin, cryptogramText);
@@ -451,7 +485,14 @@ int main(int argc, char *argv[])
                 }
                 keyDataToPass.first = *itKeyToPass;
                 keyDataToPass.second = 0;
-                vecThreads.push_back(std::thread(addOneBetterSolution, std::ref(solutionMap), std::ref(solutionMapLocker), std::ref(keyDataToPass), std::ref(cryptogramTextFixed), std::ref(wordList)));
+                vecThreads.push_back(
+                    std::thread(addOneBetterSolution, 
+                    std::ref(solutionMap), 
+                    std::ref(solutionMapLocker), 
+                    std::ref(keyDataToPass), 
+                    std::ref(cryptogramTextFixed), 
+                    std::ref(wordList),
+                    std::ref(freqMap)));
                 ++itKeyToPass;
             }
 
