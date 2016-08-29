@@ -140,7 +140,7 @@ public:
 
 private:
     size_t currentLen;
-    char array[arrSize];
+    alignas(16) char array[arrSize];
 };
 
 
