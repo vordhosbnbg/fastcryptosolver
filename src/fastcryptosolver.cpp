@@ -62,22 +62,24 @@ public:
     }
     ~FixedString(){}
 
-    const char * c_str() const
+    inline const char * c_str() const
     {
         return array;
     }
 
-    const char& at(size_t offset) const
+    inline const char& at(size_t offset) const
+    {
+        assert(offset > 0);
+        assert(offset < maxLen);
+        return array[offset];
+    }
+
+    inline char& at(size_t offset)
     {
         return array[offset];
     }
 
-    char& at(size_t offset)
-    {
-        return array[offset];
-    }
-
-    size_t size() const
+    inline size_t size() const
     {
         return currentLen;
     }
@@ -92,18 +94,18 @@ public:
         }
     };
 
-    bool operator==(const FixedString<maxLen>& other) const
+    inline bool operator==(const FixedString<maxLen>& other) const
     {
         return (memcmp(array, other.array, currentLen) == 0);
     }
 
-    void operator=(const FixedString<maxLen> &other )
+    inline void operator=(const FixedString<maxLen> &other )
     {
         memcpy(array, other.array, arrSize);
         currentLen = other.currentLen;
     }
 
-    size_t find_first_of(const char val, size_t offset = 0) const
+    inline size_t find_first_of(const char val, size_t offset = 0) const
     {
         size_t retVal = npos;
         if(offset <= currentLen)
@@ -120,13 +122,13 @@ public:
         return retVal;
     }
 
-    void push_back(char chr)
+    inline void push_back(char chr)
     {
         array[currentLen] = chr;
         currentLen++;
     }
 
-    FixedString<maxLen> substr(size_t begin, size_t len) const
+    inline FixedString<maxLen> substr(size_t begin, size_t len) const
     {
         FixedString<maxLen> retVal;
         assert(begin + len < arrSize);
@@ -148,7 +150,8 @@ private:
 //using Word = std::string;
 //using WordList = std::unordered_set<std::string>;
 using Word = FixedString<maxTextLength>;
-using WordList = std::unordered_set<Word, Word::hasher >;
+using WordList = std::unordered_set<Word, Word::hasher>;
+using WordPatternMap = std::unordered_map<Word, WordList, Word::hasher>;
 using WordArray = std::array<Word, maxWords>;
 using CryptoText = FixedString<maxTextLength>;
 using CryptoKey = FixedString<ALPHABET_LETTERS_NUM>;
@@ -159,6 +162,41 @@ using SolutionMap = std::multimap<double, Solution>;
 using LetterFrequencyMap = std::map<char, unsigned int>;
 
 
+Word getWordPattern(const Word& word)
+{
+
+    Word retVal;
+    Word listOfUsedLetters;
+    char code = 'A';
+    for(size_t index = 0; index < word.size(); ++index)
+    {
+        const char& chr = word.at(index);
+        size_t pos = listOfUsedLetters.find_first_of(chr);
+        if(pos == Word::npos)
+        {
+            retVal.push_back(code);
+            listOfUsedLetters.push_back(chr);
+            code++;
+        }
+        else
+        {
+            retVal.push_back(retVal.at(pos));
+        }
+    }
+    return retVal;
+}
+
+WordPatternMap createPatternMap(WordList& list)
+{
+    WordPatternMap retVal;
+    for(const Word& word : list)
+    {
+        Word pattern = getWordPattern(word);
+        WordList& wordListOfCurrentPattern = retVal[pattern];
+        wordListOfCurrentPattern.emplace(pattern);
+    }
+    return retVal;
+}
 
 template<int NumLetters>
 CryptoText transformText(const CryptoText& sourceText, const CryptoKey& substitutionKey)
@@ -179,6 +217,7 @@ CryptoText transformText(const CryptoText& sourceText, const CryptoKey& substitu
     }
     return retVal;
 }
+
 void analyseWord(Word& word, LetterFrequencyMap& freqMap)
 {
     for (auto index = 0; index < word.size(); ++index)
@@ -443,6 +482,8 @@ int main(int argc, char *argv[])
     WordList wordList;
     LetterFrequencyMap freqMap;
     loadWordListIntoSet(wordlistName, wordList, freqMap);
+    WordPatternMap patternMap;
+    patternMap = createPatternMap(wordList);
     std::string cryptogramText;// = "AQQH TL AIF LMX XD SOG KPA TSUHF CDL QFTCS MPU HVNSTL";
     std::cout << "Enter cryptogram:" << std::endl;
     std::getline(std::cin, cryptogramText);
