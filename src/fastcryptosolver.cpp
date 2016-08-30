@@ -155,6 +155,7 @@ using WordPatternMap = std::unordered_map<Word, WordList, Word::hasher>;
 using WordArray = std::array<Word, maxWords>;
 using CryptoText = FixedString<maxTextLength>;
 using CryptoKey = FixedString<ALPHABET_LETTERS_NUM>;
+using CryptoKeyList = std::vector<CryptoKey>;
 using CryptoKeySet = std::unordered_set<CryptoKey, CryptoKey::hasher>;
 using CryptoKeyData = std::pair<CryptoKey, unsigned int>;
 using Solution = std::pair<CryptoKeyData, const CryptoText>;
@@ -194,6 +195,82 @@ WordPatternMap createPatternMap(WordList& list)
         Word pattern = getWordPattern(word);
         WordList& wordListOfCurrentPattern = retVal[pattern];
         wordListOfCurrentPattern.emplace(pattern);
+    }
+    return retVal;
+}
+
+CryptoKey getInitialKey()
+{
+    return CryptoKey("**************************");
+}
+
+CryptoKey getCommonKeyFromTwoWords(const Word& encryptedWord, const Word& decryptedWord)
+{
+    CryptoKey retVal = getInitialKey();
+    assert(encryptedWord.size() == decryptedWord.size());
+    for(size_t index = 0; index < encryptedWord.size(); ++index)
+    {
+        const char& chrEnc = encryptedWord.at(index);
+        const char& chrDec = decryptedWord.at(index);
+        retVal.at(chrEnc) = chrDec;
+    }
+    return retVal;
+}
+
+CryptoKeyList getMatchingKeys(const Word& encryptedWord, const WordList& possibleMatches)
+{
+    CryptoKeyList retVal;
+
+    for(const Word& matchingWord : possibleMatches)
+    {
+        retVal.emplace_back(getCommonKeyFromTwoWords(encryptedWord, matchingWord));
+    }
+
+    return retVal;
+}
+
+bool combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2, CryptoKey& outKey)
+{
+    bool retVal = true;
+    outKey = getInitialKey();
+    for(size_t index = 0; index < key1.size(); ++index)
+    {
+        const char& chr1 = key1.at(index);
+        const char& chr2 = key2.at(index);
+        if((chr1 != '*') && (chr2 != '*'))
+        {
+            retVal = false;
+        }
+        else if (chr1 != '*')
+        {
+            outKey.at(index) = chr1;
+        }
+        else if (chr2 != '*')
+        {
+            outKey.at(index) = chr2;
+        }
+    }
+    return retVal;
+}
+
+CryptoKeyList combineKeys(const CryptoKeyList keyList)
+{
+    CryptoKeyList retVal;
+    CryptoKeyList::const_iterator it1;
+    CryptoKeyList::const_iterator it2;
+    for(it1 = keyList.begin(); it1 != keyList.end(); ++it1)
+    {
+        for(it2 = it1 + 1; it2 != keyList.end(); ++it2)
+        {
+            CryptoKey result;
+            const CryptoKey& key1 = *it1;
+            const CryptoKey& key2 = *it2;
+
+            if(combineTwoKeys(key1, key2, result))
+            {
+                retVal.push_back(result);
+            }
+        }
     }
     return retVal;
 }
@@ -492,6 +569,26 @@ int main(int argc, char *argv[])
     if (wordList.size() > 0)
     {
         unsigned maxThreads = std::thread::hardware_concurrency();
+        WordArray arrayWords;
+        size_t numWords = splitLineToWords(cryptogramTextFixed, arrayWords);
+        CryptoKey keyData;
+        std::vector<CryptoKey> matchingKeys;
+        for(size_t index = 0; index < numWords; ++index)
+        {
+            Word& word = arrayWords[index];
+            WordPatternMap::const_iterator it = patternMap.find(word);
+            if(it != patternMap.end())
+            {
+                const WordList& matchingWordList = it->second;
+
+                std::vector<CryptoKey> newKeys = getMatchingKeys(word, matchingWordList);
+                for(const CryptoKey& possibleKey : newKeys)
+                {
+                    newKeys.emplace_back(possibleKey);
+                }
+            }
+        }
+#if OLD_IMPLEMENTATION
         SolutionMap solutionMap;
         std::uniform_int_distribution<unsigned int> dist(0, maxThreads - 1);
         CryptoKeyData keyDataToPass;
@@ -543,6 +640,7 @@ int main(int argc, char *argv[])
             }
             
         }
+#endif
     }
 }
 
