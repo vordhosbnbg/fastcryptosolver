@@ -553,6 +553,10 @@ CryptoKeySet getBestKeys(const SolutionMap& sMap, int numberOfKeys)
 }
 
 
+void printSolution(const CryptoText& text, const CryptoKey& key)
+{
+
+}
 
 int main(int argc, char *argv[])
 {
@@ -572,7 +576,7 @@ int main(int argc, char *argv[])
         WordArray arrayWords;
         size_t numWords = splitLineToWords(cryptogramTextFixed, arrayWords);
         CryptoKey keyData;
-        std::vector<CryptoKey> matchingKeys;
+        CryptoKeyList matchingKeys;
         for(size_t index = 0; index < numWords; ++index)
         {
             Word& word = arrayWords[index];
@@ -581,12 +585,18 @@ int main(int argc, char *argv[])
             {
                 const WordList& matchingWordList = it->second;
 
-                std::vector<CryptoKey> newKeys = getMatchingKeys(word, matchingWordList);
+                CryptoKeyList newKeys = getMatchingKeys(word, matchingWordList);
                 for(const CryptoKey& possibleKey : newKeys)
                 {
-                    newKeys.emplace_back(possibleKey);
+                    matchingKeys.emplace_back(possibleKey);
                 }
             }
+        }
+
+        matchingKeys = combineKeys(matchingKeys);
+        for(const CryptoKey& fullKey : matchingKeys)
+        {
+            printSolution(cryptogramTextFixed, fullKey);
         }
 #if OLD_IMPLEMENTATION
         SolutionMap solutionMap;
