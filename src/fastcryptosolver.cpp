@@ -255,11 +255,12 @@ bool combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2, CryptoKey& out
     return retVal;
 }
 
-CryptoKeyList combineKeys(const CryptoKeyList keyList)
+CryptoKeyList combineKeys(const CryptoKeyList keyList, const Combination combo)
 {
     CryptoKeyList retVal;
     CryptoKeyList::const_iterator it1;
     CryptoKeyList::const_iterator it2;
+
     for(it1 = keyList.begin(); it1 != keyList.end(); ++it1)
     {
         for(it2 = it1 + 1; it2 != keyList.end(); ++it2)
@@ -294,6 +295,25 @@ CryptoText transformText(const CryptoText& sourceText, const CryptoKey& substitu
             }
         }
     }
+    return retVal;
+}
+
+CombinationList createAllPermutations(size_t numOfElements)
+{
+    CombinationList retVal;
+    std::vector<int> initVec;
+    initVec.resize(numOfElements);
+    retVal.resize(numOfElements);
+    for(auto ind = 0; ind < numOfElements; ++ind)
+    {
+        initVec[ind] = ind;
+    }
+
+    do
+    {
+        retVal.emplace_back(initVec);
+    } while (std::next_permutation(initVec.begin(), initVec.end()));
+
     return retVal;
 }
 
@@ -579,10 +599,8 @@ int main(int argc, char *argv[])
     CryptoText cryptogramTextFixed = cryptogramText;
     if (wordList.size() > 0)
     {
-        unsigned maxThreads = std::thread::hardware_concurrency();
         WordArray arrayWords;
         size_t numWords = splitLineToWords(cryptogramTextFixed, arrayWords);
-        CryptoKey keyData;
         CryptoKeyList matchingKeys;
         std::vector<CryptoKeyList> keysPerWord;
         keysPerWord.resize(numWords);
@@ -599,8 +617,18 @@ int main(int argc, char *argv[])
             }
         }
         
-        matchingKeys = combineKeys(matchingKeys);
-        CombinationList permutationIndexes;
+        CombinationList allCombinations = createAllPermutations(numWords);
+        unsigned int maxThreads = std::thread::hardware_concurrency();
+        std::vector<CombinationList> combinationsPerThread;
+        combinationsPerThread.resize(maxThreads);
+        size_t threadId = 0;
+        for(const Combination& combo : allCombinations)
+        {
+            combinationsPerThread[threadId].emplace_back(combo);
+        }
+
+        std::vector<std::thread> vecThreads;
+        //matchingKeys = combineKeys(keysPerWord[0], permutationIndexes[0]);
         for(const CryptoKey& fullKey : matchingKeys)
         {
             printSolution(cryptogramTextFixed, fullKey, wordList);
