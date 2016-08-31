@@ -69,7 +69,7 @@ public:
 
     inline const char& at(size_t offset) const
     {
-        assert(offset > 0);
+        assert(offset >= 0);
         assert(offset < maxLen);
         return array[offset];
     }
@@ -161,6 +161,8 @@ using CryptoKeyData = std::pair<CryptoKey, unsigned int>;
 using Solution = std::pair<CryptoKeyData, const CryptoText>;
 using SolutionMap = std::multimap<double, Solution>;
 using LetterFrequencyMap = std::map<char, unsigned int>;
+using Combination = std::vector<int>;
+using CombinationList = std::vector<Combination>;
 
 
 Word getWordPattern(const Word& word)
@@ -194,7 +196,7 @@ WordPatternMap createPatternMap(WordList& list)
     {
         Word pattern = getWordPattern(word);
         WordList& wordListOfCurrentPattern = retVal[pattern];
-        wordListOfCurrentPattern.emplace(pattern);
+        wordListOfCurrentPattern.emplace(word);
     }
     return retVal;
 }
@@ -212,7 +214,7 @@ CryptoKey getCommonKeyFromTwoWords(const Word& encryptedWord, const Word& decryp
     {
         const char& chrEnc = encryptedWord.at(index);
         const char& chrDec = decryptedWord.at(index);
-        retVal.at(chrEnc) = chrDec;
+        retVal.at(chrEnc - 'A') = chrDec;
     }
     return retVal;
 }
@@ -406,7 +408,7 @@ size_t splitLineToWords(const CryptoText& line, WordArray& outVec)
     return retVal;
 }
 
-double calcTextQuality(const CryptoText& text, const WordList& wordList, std::set<char>& goodPos)
+double calcTextQuality(const CryptoText& text, const WordList& wordList)
 {
     double retVal;
     WordArray arrayWords;
@@ -425,7 +427,6 @@ double calcTextQuality(const CryptoText& text, const WordList& wordList, std::se
             for(auto index = 0; index < word.size(); ++index)
             {
                 char chr = word.at(index);
-                goodPos.insert(chr);
             }
         }
     }
@@ -455,7 +456,7 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoK
     CryptoKeyData newKeyData = initialKey;
     CryptoText decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, initialKey.first);
     std::set<char> goodPositions;
-    const double minQuality = calcTextQuality(decryptedText, wordList, goodPositions);
+    const double minQuality = calcTextQuality(decryptedText, wordList);
     while (!added)
     {
         newKeyData = MutateKey<ALPHABET_LETTERS_NUM>(newKeyData, goodPositions, freqMap);
@@ -468,7 +469,7 @@ void addOneBetterSolution(SolutionMap& sMap, std::mutex& mapMutex, const CryptoK
             break;
         }
         decryptedText = transformText<ALPHABET_LETTERS_NUM>(cryptoText, newKeyData.first);
-        double quality = calcTextQuality(decryptedText, wordList, goodPositions);
+        double quality = calcTextQuality(decryptedText, wordList);
         //std::cout << decryptedText << std::endl;
         if (quality > minQuality)
         {
@@ -553,9 +554,15 @@ CryptoKeySet getBestKeys(const SolutionMap& sMap, int numberOfKeys)
 }
 
 
-void printSolution(const CryptoText& text, const CryptoKey& key)
+void printSolution(const CryptoText& text, const CryptoKey& key, const WordList& wordList)
 {
-
+    if (key.find_first_of('*') != CryptoKey::npos) 
+    {
+        CryptoText decrypted = transformText<ALPHABET_LETTERS_NUM>(text, key);
+        double quality = calcTextQuality(decrypted, wordList);
+        std::cout << "Key: " << key.c_str() << " Q(" << std::setprecision(4) << std::fixed << quality
+            << ") Decrypted: " << decrypted.c_str() << std::endl;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -577,26 +584,26 @@ int main(int argc, char *argv[])
         size_t numWords = splitLineToWords(cryptogramTextFixed, arrayWords);
         CryptoKey keyData;
         CryptoKeyList matchingKeys;
+        std::vector<CryptoKeyList> keysPerWord;
+        keysPerWord.resize(numWords);
         for(size_t index = 0; index < numWords; ++index)
         {
             Word& word = arrayWords[index];
-            WordPatternMap::const_iterator it = patternMap.find(word);
+            Word pattern = getWordPattern(word);
+            WordPatternMap::const_iterator it = patternMap.find(pattern);
             if(it != patternMap.end())
             {
                 const WordList& matchingWordList = it->second;
 
-                CryptoKeyList newKeys = getMatchingKeys(word, matchingWordList);
-                for(const CryptoKey& possibleKey : newKeys)
-                {
-                    matchingKeys.emplace_back(possibleKey);
-                }
+                keysPerWord[index] = getMatchingKeys(word, matchingWordList);
             }
         }
-
+        
         matchingKeys = combineKeys(matchingKeys);
+        CombinationList permutationIndexes;
         for(const CryptoKey& fullKey : matchingKeys)
         {
-            printSolution(cryptogramTextFixed, fullKey);
+            printSolution(cryptogramTextFixed, fullKey, wordList);
         }
 #if OLD_IMPLEMENTATION
         SolutionMap solutionMap;
