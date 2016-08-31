@@ -89,7 +89,7 @@ public:
         size_t operator()( const FixedString<maxLen>& objToHash ) const
         {
             size_t retVal;
-            MurmurHash3_x86_32(&objToHash, sizeof(FixedString<maxLen>), 0xDEADBEEF, &retVal);
+            MurmurHash3_x86_32(&objToHash.array, sizeof(FixedString<maxLen>::array), 0xDEADBEEF, &retVal);
             return retVal;
         }
     };
@@ -572,7 +572,7 @@ int main(int argc, char *argv[])
     loadWordListIntoSet(wordlistName, wordList, freqMap);
     WordPatternMap patternMap;
     patternMap = createPatternMap(wordList);
-    std::string cryptogramText;// = "AQQH TL AIF LMX XD SOG KPA TSUHF CDL QFTCS MPU HVNSTL";
+    std::string cryptogramText;// = "TUQS MGZI BHDDWA MGZSP ZI GUVT";
     std::cout << "Enter cryptogram:" << std::endl;
     std::getline(std::cin, cryptogramText);
     std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
