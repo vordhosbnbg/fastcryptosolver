@@ -255,7 +255,7 @@ bool combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2, CryptoKey& out
     return retVal;
 }
 
-CryptoKeyList combineKeys(const CryptoKeyList keyList, const Combination combo)
+CryptoKeyList combineKeys(const CryptoKeyList& keyList, const CombinationList& combo)
 {
     CryptoKeyList retVal;
     CryptoKeyList::const_iterator it1;
@@ -303,7 +303,7 @@ CombinationList createAllPermutations(size_t numOfElements)
     CombinationList retVal;
     std::vector<int> initVec;
     initVec.resize(numOfElements);
-    retVal.resize(numOfElements);
+    retVal.reserve(numOfElements*numOfElements);
     for(auto ind = 0; ind < numOfElements; ++ind)
     {
         initVec[ind] = ind;
@@ -335,7 +335,7 @@ void loadWordListIntoSet(const std::string& filename, WordList& outSet, LetterFr
     std::cout << "Start loading wordlist from file: " << std::endl << filename << std::endl;
     auto tpBegin = std::chrono::system_clock::now();
     std::ifstream wordlistFile(filename);
-    outSet.reserve(2000000);
+    outSet.reserve(4000000);
     if (wordlistFile.is_open())
     {
         std::string line;
@@ -348,7 +348,7 @@ void loadWordListIntoSet(const std::string& filename, WordList& outSet, LetterFr
         {
             std::transform(line.begin(), line.end(), line.begin(), ::toupper);
             word = line;
-            analyseWord(word, freqMap);
+            //analyseWord(word, freqMap);
             outSet.insert(word);
         }
         auto tpEnd = std::chrono::system_clock::now();
@@ -618,16 +618,30 @@ int main(int argc, char *argv[])
         }
         
         CombinationList allCombinations = createAllPermutations(numWords);
-        unsigned int maxThreads = std::thread::hardware_concurrency();
+        size_t maxThreads = std::thread::hardware_concurrency();
         std::vector<CombinationList> combinationsPerThread;
+        maxThreads = std::max(maxThreads, allCombinations.size());
         combinationsPerThread.resize(maxThreads);
         size_t threadId = 0;
         for(const Combination& combo : allCombinations)
         {
             combinationsPerThread[threadId].emplace_back(combo);
+            if (threadId < maxThreads)
+            {
+                ++threadId;
+            }
+            else 
+            {
+                threadId = 0;
+            }
         }
 
         std::vector<std::thread> vecThreads;
+        for (size_t threadId = 0; threadId < maxThreads; ++threadId) 
+        {
+            std::packaged_task<CryptoKeyList(const CryptoKeyList&, const CombinationList&)> task(combineKeys, keysPerWord, combinationsPerThread[threadId]);
+            vecThreads.emplace_back(std::thread(combineKeys, std::ref(keysPerWord), combinationsPerThread[threadId]));
+        }
         //matchingKeys = combineKeys(keysPerWord[0], permutationIndexes[0]);
         for(const CryptoKey& fullKey : matchingKeys)
         {
