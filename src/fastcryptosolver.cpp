@@ -138,6 +138,19 @@ public:
         return retVal;
     }
 
+    inline size_t count(const char val) 
+    {
+        size_t retVal = 0;
+        for (size_t index = 0; index < currentLen; ++index) 
+        {
+            if (array[index] == val) 
+            {
+                ++retVal;
+            }
+        }
+        return retVal;
+    }
+
     static const size_t npos = static_cast<size_t>(-1);
 
 private:
@@ -230,18 +243,19 @@ CryptoKeyList getMatchingKeys(const Word& encryptedWord, const WordList& possibl
 
     return retVal;
 }
-
-bool combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2, CryptoKey& outKey)
+CryptoKeyList combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2)
 {
-    bool retVal = true;
-    outKey = getInitialKey();
-    for(size_t index = 0; index < key1.size(); ++index)
+    CryptoKeyList list;
+    CryptoKey outKey(getInitialKey());
+    bool success = true;
+    for (size_t index = 0; index < key1.size(); ++index)
     {
         const char& chr1 = key1.at(index);
         const char& chr2 = key2.at(index);
-        if((chr1 != '*') && (chr2 != '*'))
+        if ((chr1 != '*') && (chr2 != '*'))
         {
-            retVal = false;
+            success = false;
+            break;
         }
         else if (chr1 != '*')
         {
@@ -252,28 +266,42 @@ bool combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2, CryptoKey& out
             outKey.at(index) = chr2;
         }
     }
+    if (success) 
+    {
+        list.emplace_back(key1);
+        list.emplace_back(key2);
+    }
+    else 
+    {
+        list.emplace_back(outKey);
+    }
+    return list;
+}
+
+CryptoKeyList combineTwoKeyLists(const CryptoKeyList& keyList1, const CryptoKeyList& keyList2)
+{
+    CryptoKeyList retVal;
+
     return retVal;
 }
 
-CryptoKeyList combineKeys(const CryptoKeyList& keyList, const CombinationList& combo)
+CryptoKeyList combineKeys(const std::vector<CryptoKeyList>& keyList, const CombinationList& comboList)
 {
     CryptoKeyList retVal;
-    CryptoKeyList::const_iterator it1;
-    CryptoKeyList::const_iterator it2;
-
-    for(it1 = keyList.begin(); it1 != keyList.end(); ++it1)
+    std::vector<CryptoKeyList>::const_iterator it1;
+    std::vector<CryptoKeyList>::const_iterator it2;
+    
+    for (const Combination& combo : comboList)
     {
-        for(it2 = it1 + 1; it2 != keyList.end(); ++it2)
+        bool finished = false;
+        CryptoKeyList currentList;
+        currentList = keyList[0];
+        for (int index = 1; index < combo.size(); ++index) 
         {
-            CryptoKey result;
-            const CryptoKey& key1 = *it1;
-            const CryptoKey& key2 = *it2;
-
-            if(combineTwoKeys(key1, key2, result))
-            {
-                retVal.push_back(result);
-            }
+            const CryptoKeyList& keyListOther = keyList[index];
+            currentList = combineTwoKeyLists(currentList, keyListOther);
         }
+        retVal.insert(retVal.end(), currentList.begin(), currentList.end());
     }
     return retVal;
 }
@@ -639,8 +667,8 @@ int main(int argc, char *argv[])
         std::vector<std::thread> vecThreads;
         for (size_t threadId = 0; threadId < maxThreads; ++threadId) 
         {
-            std::packaged_task<CryptoKeyList(const CryptoKeyList&, const CombinationList&)> task(combineKeys, keysPerWord, combinationsPerThread[threadId]);
-            vecThreads.emplace_back(std::thread(combineKeys, std::ref(keysPerWord), combinationsPerThread[threadId]));
+            std::packaged_task<CryptoKeyList(const std::vector<CryptoKeyList>&, const CombinationList&)> task(combineKeys, keysPerWord, combinationsPerThread[threadId]);
+            //vecThreads.emplace_back(std::thread(combineKeys, std::ref(keysPerWord), combinationsPerThread[threadId]));
         }
         //matchingKeys = combineKeys(keysPerWord[0], permutationIndexes[0]);
         for(const CryptoKey& fullKey : matchingKeys)
