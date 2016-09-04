@@ -15,6 +15,7 @@
 #include <random>
 #include <sstream>
 #include <string.h>
+#include <future>
 #include "MurmurHash3.h"
 #include <assert.h>
 
@@ -268,12 +269,12 @@ CryptoKeyList combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2)
     }
     if (success) 
     {
-        list.emplace_back(key1);
-        list.emplace_back(key2);
+        list.emplace_back(outKey);
     }
     else 
     {
-        list.emplace_back(outKey);
+        list.emplace_back(key1);
+        list.emplace_back(key2);
     }
     return list;
 }
@@ -281,15 +282,23 @@ CryptoKeyList combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2)
 CryptoKeyList combineTwoKeyLists(const CryptoKeyList& keyList1, const CryptoKeyList& keyList2)
 {
     CryptoKeyList retVal;
+    CryptoKeyList::const_iterator it1;
+    CryptoKeyList::const_iterator it2;
 
+    for (it1 = keyList1.begin(); it1 != keyList1.end(); ++it1)
+    {
+        for (it2 = keyList2.begin(); it2 != keyList2.end(); ++it2) 
+        {
+            CryptoKeyList res = combineTwoKeys(*it1, *it2);
+            retVal.insert(retVal.end(), res.begin(), res.end());
+        }
+    }
     return retVal;
 }
 
 CryptoKeyList combineKeys(const std::vector<CryptoKeyList>& keyList, const CombinationList& comboList)
 {
     CryptoKeyList retVal;
-    std::vector<CryptoKeyList>::const_iterator it1;
-    std::vector<CryptoKeyList>::const_iterator it2;
     
     for (const Combination& combo : comboList)
     {
@@ -620,10 +629,10 @@ int main(int argc, char *argv[])
     loadWordListIntoSet(wordlistName, wordList, freqMap);
     WordPatternMap patternMap;
     patternMap = createPatternMap(wordList);
-    std::string cryptogramText;// = "TUQS MGZI BHDDWA MGZSP ZI GUVT";
-    std::cout << "Enter cryptogram:" << std::endl;
-    std::getline(std::cin, cryptogramText);
-    std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
+    std::string cryptogramText = "TUQS MGZI BHDDWA MGZSP ZI GUVT";
+    //std::cout << "Enter cryptogram:" << std::endl;
+    //std::getline(std::cin, cryptogramText);
+    //std::transform(cryptogramText.begin(), cryptogramText.end(), cryptogramText.begin(), ::toupper);
     CryptoText cryptogramTextFixed = cryptogramText;
     if (wordList.size() > 0)
     {
@@ -648,13 +657,13 @@ int main(int argc, char *argv[])
         CombinationList allCombinations = createAllPermutations(numWords);
         size_t maxThreads = std::thread::hardware_concurrency();
         std::vector<CombinationList> combinationsPerThread;
-        maxThreads = std::max(maxThreads, allCombinations.size());
+        maxThreads = std::min(maxThreads, allCombinations.size());
         combinationsPerThread.resize(maxThreads);
         size_t threadId = 0;
         for(const Combination& combo : allCombinations)
         {
             combinationsPerThread[threadId].emplace_back(combo);
-            if (threadId < maxThreads)
+            if (threadId < maxThreads - 1)
             {
                 ++threadId;
             }
@@ -665,12 +674,21 @@ int main(int argc, char *argv[])
         }
 
         std::vector<std::thread> vecThreads;
+        std::vector<std::future<CryptoKeyList>> vecFutures;
+        CryptoKeyList threadResults;
         for (size_t threadId = 0; threadId < maxThreads; ++threadId) 
         {
-            std::packaged_task<CryptoKeyList(const std::vector<CryptoKeyList>&, const CombinationList&)> task(combineKeys, keysPerWord, combinationsPerThread[threadId]);
-            //vecThreads.emplace_back(std::thread(combineKeys, std::ref(keysPerWord), combinationsPerThread[threadId]));
+            std::packaged_task<CryptoKeyList(const std::vector<CryptoKeyList>&, const CombinationList&)> task(combineKeys);
+            vecFutures.emplace_back(task.get_future());
+            vecThreads.emplace_back(std::thread(std::move(task), keysPerWord, combinationsPerThread[threadId]));
         }
-        //matchingKeys = combineKeys(keysPerWord[0], permutationIndexes[0]);
+        for (size_t threadId = 0; threadId < maxThreads; ++threadId)
+        {
+            vecThreads[threadId].join();
+            CryptoKeyList threadResult = vecFutures[threadId].get();
+            threadResults.insert(threadResults.end(), threadResult.begin(), threadResult.end());
+        }
+        
         for(const CryptoKey& fullKey : matchingKeys)
         {
             printSolution(cryptogramTextFixed, fullKey, wordList);
