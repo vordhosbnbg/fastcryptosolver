@@ -29,6 +29,8 @@ constexpr int mutateGoodLetterFactor = 20;
 constexpr size_t maxWords = 20;
 constexpr unsigned int keyTryLimit = 80000000u;
 
+#define NAIVE_COMBINATON 1
+
 std::random_device rd;
 std::default_random_engine e1(rd());
 
@@ -244,7 +246,7 @@ CryptoKeyList getMatchingKeys(const Word& encryptedWord, const WordList& possibl
 
     return retVal;
 }
-CryptoKeyList combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2)
+CryptoKeyList combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2, bool keepBadResults)
 {
     CryptoKeyList list;
     CryptoKey outKey(getInitialKey());
@@ -271,7 +273,7 @@ CryptoKeyList combineTwoKeys(const CryptoKey& key1, const CryptoKey& key2)
     {
         list.emplace_back(outKey);
     }
-    else 
+    else if(keepBadResults)
     {
         list.emplace_back(key1);
         list.emplace_back(key2);
@@ -289,26 +291,53 @@ CryptoKeyList combineTwoKeyLists(const CryptoKeyList& keyList1, const CryptoKeyL
     {
         for (it2 = keyList2.begin(); it2 != keyList2.end(); ++it2) 
         {
-            CryptoKeyList res = combineTwoKeys(*it1, *it2);
+            CryptoKeyList res = combineTwoKeys(*it1, *it2, false);
             retVal.insert(retVal.end(), res.begin(), res.end());
         }
     }
     return retVal;
 }
 
+
+CryptoKeyList combineKeysSuccessOnly(const std::vector<CryptoKeyList>& keyLists, const CombinationList& comboList)
+{
+    CryptoKeyList retVal;
+    std::vector<CryptoKeyList::const_iterator> vecKeyListIterators;
+    for(const auto& list : keyLists)
+    {
+        keyListIterators.emplace_back(list.begin());
+    }
+    int index1 = 0;
+    int index2 = 1;
+    int currentCycle;
+    while(vecKeyListIterators.back() != keyLists.back().end())
+    {
+        CryptoKeyList::const_iterator& iterator1 = vecKeyListIterators[index1];
+
+        while(index2 < vecKeyListIterators.size())
+        {
+            CryptoKeyList::const_iterator& iterator2 = vecKeyListIterators[index2];
+        }
+    }
+
+
+    return retVal;
+}
+
 CryptoKeyList combineKeys(const std::vector<CryptoKeyList>& keyList, const CombinationList& comboList)
 {
     CryptoKeyList retVal;
-    
+
     for (const Combination& combo : comboList)
     {
-        bool finished = false;
         CryptoKeyList currentList;
         currentList = keyList[0];
         for (int index = 1; index < combo.size(); ++index) 
         {
             const CryptoKeyList& keyListOther = keyList[index];
+            std::cout << "Combining key lists with size " << currentList.size() << " and " << keyListOther.size() << std::endl;
             currentList = combineTwoKeyLists(currentList, keyListOther);
+            std::cout << "New key list: " << currentList.size() << std::endl;
         }
         retVal.insert(retVal.end(), currentList.begin(), currentList.end());
     }
@@ -350,6 +379,18 @@ CombinationList createAllPermutations(size_t numOfElements)
     {
         retVal.emplace_back(initVec);
     } while (std::next_permutation(initVec.begin(), initVec.end()));
+
+    return retVal;
+}
+
+CombinationList createSingleCombination(size_t numOfElements)
+{
+    CombinationList retVal;
+    retVal.resize(1);
+    for(auto ind = 0; ind < numOfElements; ++ind)
+    {
+        retVal[0].emplace_back(ind);
+    }
 
     return retVal;
 }
@@ -653,8 +694,11 @@ int main(int argc, char *argv[])
                 keysPerWord[index] = getMatchingKeys(word, matchingWordList);
             }
         }
-        
+#if(NAIVE_COMBINATON == 1)
+        CombinationList allCombinations = createSingleCombination(numWords);
+#else
         CombinationList allCombinations = createAllPermutations(numWords);
+#endif
         size_t maxThreads = std::thread::hardware_concurrency();
         std::vector<CombinationList> combinationsPerThread;
         maxThreads = std::min(maxThreads, allCombinations.size());
@@ -672,6 +716,12 @@ int main(int argc, char *argv[])
                 threadId = 0;
             }
         }
+
+        std::sort(keysPerWord.begin(), keysPerWord.end(),
+                  [](const CryptoKeyList& list1, const CryptoKeyList& list2) -> bool
+        {
+            return list1.size() < list2.size();
+        });
 
         std::vector<std::thread> vecThreads;
         std::vector<std::future<CryptoKeyList>> vecFutures;
