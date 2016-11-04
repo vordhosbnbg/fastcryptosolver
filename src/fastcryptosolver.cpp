@@ -16,8 +16,9 @@
 #include <sstream>
 #include <string.h>
 #include <future>
-#include "MurmurHash3.h"
 #include <assert.h>
+#include "MurmurHash3.h"
+#include "boost/multi_array.hpp"
 
 
 constexpr const char* wordlistName = "../wordlist/google-10000-english-usa.txt";
@@ -179,7 +180,7 @@ using SolutionMap = std::multimap<double, Solution>;
 using LetterFrequencyMap = std::map<char, unsigned int>;
 using Combination = std::vector<int>;
 using CombinationList = std::vector<Combination>;
-
+using Matrix2D = boost::multi_array<int, 2>;
 
 Word getWordPattern(const Word& word)
 {
@@ -298,27 +299,86 @@ CryptoKeyList combineTwoKeyLists(const CryptoKeyList& keyList1, const CryptoKeyL
     return retVal;
 }
 
+int getNumberOfCommonLetterAssigments(const CryptoKey& key1, const CryptoKey& key2)
+{
+    int retVal = 0;
+    for(auto index = 0; index < key1.size(); ++index)
+    {
+        if((key1.at(index) != '*') && (key2.at(index) != '*'))
+        {
+            retVal++;
+        }
+    }
+    return retVal;
+}
 
 CryptoKeyList combineKeysSuccessOnly(const std::vector<CryptoKeyList>& keyLists, const CombinationList& comboList)
 {
     CryptoKeyList retVal;
-    std::vector<CryptoKeyList::const_iterator> vecKeyListIterators;
-    for(const auto& list : keyLists)
-    {
-        keyListIterators.emplace_back(list.begin());
-    }
-    int index1 = 0;
-    int index2 = 1;
-    int currentCycle;
-    while(vecKeyListIterators.back() != keyLists.back().end())
-    {
-        CryptoKeyList::const_iterator& iterator1 = vecKeyListIterators[index1];
+//    std::vector<CryptoKeyList::const_iterator> vecKeyListIterators;
+//    for(const auto& list : keyLists)
+//    {
+//        keyListIterators.emplace_back(list.begin());
+//    }
+//    int index1 = 0;
+//    int index2 = 1;
+//    int currentCycle;
+//    while(vecKeyListIterators.back() != keyLists.back().end())
+//    {
+//        CryptoKeyList::const_iterator& iterator1 = vecKeyListIterators[index1];
+//
+//        while(index2 < vecKeyListIterators.size())
+//        {
+//            CryptoKeyList::const_iterator& iterator2 = vecKeyListIterators[index2];
+//        }
+//    }
 
-        while(index2 < vecKeyListIterators.size())
+
+    return retVal;
+}
+
+CryptoKeyList combineKeysSmart(const std::vector<CryptoKeyList>& keysPerWord)
+{
+    CryptoKeyList retVal;
+
+    //using TwoWordCombo = std::pair<int, int>;
+    //using NumberOfLetterPerTwoWords = std::pair<int, TwoWordCombo>;
+    //std::vector<NumberOfLetterPerTwoWords> numCommonLetters;
+    size_t numWords = keysPerWord.size();
+    std::vector<int> matrixCommonLetters;
+    matrixCommonLetters.resize(numWords*numWords, 0);
+
+    int maxCommonLetters = 0;
+    for(size_t index1 = 0; index1 < numWords - 1; ++index1)
+    {
+        for(size_t index2 = index1 + 1; index2 < numWords; ++index2)
         {
-            CryptoKeyList::const_iterator& iterator2 = vecKeyListIterators[index2];
+            int letters = getNumberOfCommonLetterAssigments(keysPerWord[index1][0], keysPerWord[index2][0]);
+
+            matrixCommonLetters[index1][index2] = matrixCommonLetters[index2][index1] = letters;
         }
     }
+
+
+
+    std::sort(numCommonLetters.begin(), numCommonLetters.end(),
+              [&](const NumberOfLetterPerTwoWords& pair1, const NumberOfLetterPerTwoWords& pair2) ->bool
+    {
+        bool retVal = false;
+        if(pair1.first > pair2.first)
+        {
+            retVal = true;
+        }
+        else if(pair1.first == pair2.first)
+        {
+            if(std::min(keysPerWord[pair1.second.first].size(), keysPerWord[pair1.second.second].size())
+                    <
+               std::min(keysPerWord[pair2.second.first].size(), keysPerWord[pair2.second.second].size()))
+            {
+                retVal = true;
+            }
+        }
+    });
 
 
     return retVal;
@@ -717,29 +777,64 @@ int main(int argc, char *argv[])
             }
         }
 
-        std::sort(keysPerWord.begin(), keysPerWord.end(),
-                  [](const CryptoKeyList& list1, const CryptoKeyList& list2) -> bool
-        {
-            return list1.size() < list2.size();
-        });
+        std::vector<CryptoKeyList> keysPerWordSorted;
+        keysPerWordSorted.reserve(numWords);
 
-        std::vector<std::thread> vecThreads;
-        std::vector<std::future<CryptoKeyList>> vecFutures;
-        CryptoKeyList threadResults;
-        for (size_t threadId = 0; threadId < maxThreads; ++threadId) 
+        std::vector<bool> insertedWordIndexes;
+        insertedWordIndexes.resize(numWords, false);
+        for(const NumberOfLetterPerTwoWords& numLettersInfo : numCommonLetters)
         {
-            std::packaged_task<CryptoKeyList(const std::vector<CryptoKeyList>&, const CombinationList&)> task(combineKeys);
-            vecFutures.emplace_back(task.get_future());
-            vecThreads.emplace_back(std::thread(std::move(task), keysPerWord, combinationsPerThread[threadId]));
+            const CryptoKeyList& firstListOfCombo = keysPerWord[numLettersInfo.second.first];
+            const CryptoKeyList& secondListOfCombo = keysPerWord[numLettersInfo.second.second];
+
+            if(firstListOfCombo.size() < secondListOfCombo.size())
+            {
+                if(!insertedWordIndexes[numLettersInfo.second.first])
+                {
+                    keysPerWordSorted.emplace_back(firstListOfCombo);
+                    insertedWordIndexes[numLettersInfo.second.first] = true;
+                }
+                if(!insertedWordIndexes[numLettersInfo.second.second])
+                {
+                    keysPerWordSorted.emplace_back(secondListOfCombo);
+                    insertedWordIndexes[numLettersInfo.second.second] = true;
+                }
+            }
+            else
+            {
+                if(!insertedWordIndexes[numLettersInfo.second.second])
+                {
+                    keysPerWordSorted.emplace_back(secondListOfCombo);
+                    insertedWordIndexes[numLettersInfo.second.second] = true;
+                }
+                if(!insertedWordIndexes[numLettersInfo.second.first])
+                {
+                    keysPerWordSorted.emplace_back(firstListOfCombo);
+                    insertedWordIndexes[numLettersInfo.second.first] = true;
+                }
+            }
         }
-        for (size_t threadId = 0; threadId < maxThreads; ++threadId)
-        {
-            vecThreads[threadId].join();
-            CryptoKeyList threadResult = vecFutures[threadId].get();
-            threadResults.insert(threadResults.end(), threadResult.begin(), threadResult.end());
-        }
+
+        assert(keysPerWordSorted.size() == keysPerWord.size());
+
+
+        //std::vector<std::thread> vecThreads;
+        //std::vector<std::future<CryptoKeyList>> vecFutures;
+        CryptoKeyList validKeys = combineKeysSmart(keysPerWord);
+        //for (size_t threadId = 0; threadId < maxThreads; ++threadId)
+        //{
+        //    std::packaged_task<CryptoKeyList(const std::vector<CryptoKeyList>&)> task(combineKeys);
+        //    vecFutures.emplace_back(task.get_future());
+        //    vecThreads.emplace_back(std::thread(std::move(task), keysPerWordSorted));
+        //}
+        //for (size_t threadId = 0; threadId < maxThreads; ++threadId)
+        //{
+        //    vecThreads[threadId].join();
+        //    CryptoKeyList threadResult = vecFutures[threadId].get();
+        //    threadResults.insert(threadResults.end(), threadResult.begin(), threadResult.end());
+        //}
         
-        for(const CryptoKey& fullKey : matchingKeys)
+        for(const CryptoKey& fullKey : validKeys)
         {
             printSolution(cryptogramTextFixed, fullKey, wordList);
         }
